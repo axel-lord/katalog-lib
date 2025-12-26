@@ -1,11 +1,13 @@
 [workspace]
 members = [
+	"katalog-lib",
 	"reflect",
 	"reflect/derive",
 	"reflect/derive-lib",
 	"traits"
 ]
 resolver = "2"
+default-members = ["katalog-lib"]
 
 [workspace.package]
 edition = "2024"
@@ -43,3 +45,4 @@ rustc-hash = "2.1.1"
 katalog-lib-reflect-derive = { path = "reflect/derive" }
 katalog-lib-traits = { path = "traits" }
 pretty_assertions = "1.4.1"
+katalog-lib-reflect = { path = "reflect" }
