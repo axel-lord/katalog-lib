@@ -1,8 +1,11 @@
 [workspace]
 members = [
+	"reflect",
+	"reflect/derive",
+	"reflect/derive-lib",
+	"traits"
 ]
 resolver = "2"
-default-members = ["spel-katalog"]
 
 [workspace.package]
 edition = "2024"
@@ -29,3 +32,14 @@ std_instead_of_core = "warn"
 str_to_string = "warn"
 todo = "warn"
 unused_result_ok = "warn"
+
+[workspace.dependencies]
+katalog-lib-reflect-derive-lib = { path = "reflect/derive-lib" }
+syn = { version = "2.0.111", default-features = false, features = ["full", "parsing", "printing"] }
+proc-macro2 = { version = "1.0.103", default-features = false }
+convert_case = "0.10.0"
+quote = { version = "1.0.42", default-features = false }
+rustc-hash = "2.1.1"
+katalog-lib-reflect-derive = { path = "reflect/derive" }
+katalog-lib-traits = { path = "traits" }
+pretty_assertions = "1.4.1"
