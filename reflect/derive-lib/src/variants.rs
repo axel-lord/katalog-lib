@@ -28,6 +28,12 @@ pub fn variants(item: ::syn::ItemEnum) -> ::syn::Result<TokenStream> {
                     Self::#variants => #indices,
                 )*}
             }
+
+            fn variant_lifetime_cast<'a>(value: &Self) -> &'a Self {
+                match value {#(
+                    Self::#variants => &Self::#variants,
+                )*}
+            }
         }
 
         };

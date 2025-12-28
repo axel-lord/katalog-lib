@@ -9,3 +9,11 @@ pub mod reflect {
 
 #[doc(inline)]
 pub use ::katalog_lib_traits::*;
+
+#[doc(inline)]
+pub use ::katalog_lib_widget::*;
+
+#[doc(inline)]
+pub use theme_value_enum::{ThemeValueEnum, ThemeValueEnumFromStringError};
+
+mod theme_value_enum;

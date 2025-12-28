@@ -1,0 +1,13 @@
+[package]
+name = "katalog-lib-widget"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+derive_more = { workspace = true, features = ["is_variant"] }
+iced_core.workspace = true
+
+[lints]
+workspace = true

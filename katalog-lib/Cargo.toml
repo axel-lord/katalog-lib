@@ -6,8 +6,14 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+clap.workspace = true
 katalog-lib-reflect.workspace = true
 katalog-lib-traits.workspace = true
+iced_core.workspace = true
+katalog-lib-widget = { path = "../widget" }
+serde = { version = "1.0.228", features = ["derive"] }
+thiserror = "2.0.17"
+derive_more = { workspace = true, features = ["from", "into"] }
 
 [lints]
 workspace = true

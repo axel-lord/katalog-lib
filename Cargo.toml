@@ -4,7 +4,8 @@ members = [
 	"reflect",
 	"reflect/derive",
 	"reflect/derive-lib",
-	"traits"
+	"traits",
+	"widget"
 ]
 resolver = "2"
 default-members = ["katalog-lib"]
@@ -46,3 +47,6 @@ katalog-lib-reflect-derive = { path = "reflect/derive" }
 katalog-lib-traits = { path = "traits" }
 pretty_assertions = "1.4.1"
 katalog-lib-reflect = { path = "reflect" }
+clap = "4.5.53"
+derive_more = "2.1.1"
+iced_core = "0.14.0"

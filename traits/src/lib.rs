@@ -1,6 +1,6 @@
 //! Trait definitions.
 
-use ::core::{hash::Hash, str::FromStr};
+use ::core::{hash::Hash, mem::discriminant, str::FromStr};
 
 /// Trait for simple enums to provide all values.
 ///
@@ -16,6 +16,113 @@ where
 
     /// Get index of variant in variant array.
     fn index_of(&self) -> usize;
+
+    /// Use [Variants::VARIANTS] to get a reference with any lifetime with
+    /// a value matching another value.
+    fn variant_lifetime_cast<'a>(value: &Self) -> &'a Self {
+        let disc = discriminant(value);
+        let mut variants = Self::VARIANTS;
+        while let [head, remainder @ ..] = variants {
+            if discriminant(head) == disc {
+                return head;
+            }
+            variants = remainder;
+        }
+
+        // SAFETY: Implementation of Variants and an existing value guarantees
+        // at leas once head should have a discriminant matching the value.
+        unsafe { ::core::hint::unreachable_unchecked() }
+    }
+}
+
+/// Trait to provide a set of variants.
+pub trait PartialVariants {
+    /// Provide an iterator of variants.
+    fn partial_variants<'a>() -> impl IntoIterator<Item = &'a Self>
+    where
+        Self: 'a;
+
+    /// Get the next variant in partial variants.
+    ///
+    ///
+    /// If self is not part of partial_variants the first item
+    /// is returned.
+    ///
+    /// # Panics
+    /// If `partial_variants` returns no values.
+    fn partial_cycle_next<'a>(&self) -> &'a Self
+    where
+        Self: 'a + PartialEq,
+    {
+        let mut iter = Self::partial_variants().into_iter().peekable();
+        let Some(first) = iter.peek() else {
+            panic!("partial_variants returned an empty iterator")
+        };
+        let first = *first;
+
+        while let (Some(value), Some(next)) = (iter.next(), iter.peek()) {
+            if value == self {
+                return next;
+            }
+        }
+
+        first
+    }
+    /// Get the prev variant in partial variants.
+    ///
+    /// If self is not part of partial_variants the last item
+    /// is returned.
+    ///
+    /// # Panics
+    /// If `partial_variants` returns no values.
+    fn partial_cycle_prev<'a>(&self) -> &'a Self
+    where
+        Self: 'a + PartialEq,
+    {
+        let mut iter = Self::partial_variants().into_iter().peekable();
+        let Some(first) = iter.peek() else {
+            panic!("partial_variants returned an empty iterator")
+        };
+        let mut last = *first;
+
+        while let (Some(value), Some(next)) = (iter.next(), iter.peek()) {
+            last = *next;
+            if *next == self {
+                return value;
+            }
+        }
+
+        last
+    }
+}
+
+impl<T> PartialVariants for T
+where
+    T: Variants + Cycle,
+{
+    #[inline]
+    fn partial_variants<'a>() -> impl IntoIterator<Item = &'a Self>
+    where
+        Self: 'a,
+    {
+        T::VARIANTS
+    }
+
+    #[inline]
+    fn partial_cycle_next<'a>(&self) -> &'a Self
+    where
+        Self: 'a + PartialEq,
+    {
+        T::variant_lifetime_cast(&Cycle::cycle_next(self))
+    }
+
+    #[inline]
+    fn partial_cycle_prev<'a>(&self) -> &'a Self
+    where
+        Self: 'a + PartialEq,
+    {
+        T::variant_lifetime_cast(&Cycle::cycle_prev(self))
+    }
 }
 
 /// Trait for simple enums to cycle the value.
