@@ -5,6 +5,7 @@ use ::std::sync::OnceLock;
 use ::clap::{ValueEnum, builder::PossibleValue};
 use ::derive_more::{From, Into};
 use ::iced_core::{Theme, theme::Base};
+use ::katalog_lib_traits::PartialVariants;
 use ::serde::{Deserialize, Serialize};
 
 /// Theme wrapper implementing [ValueEnum].
@@ -17,6 +18,15 @@ impl PartialEq for ThemeValueEnum {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.0.name() == other.0.name()
+    }
+}
+
+impl PartialVariants for ThemeValueEnum {
+    fn partial_variants<'a>() -> impl IntoIterator<Item = &'a Self>
+    where
+        Self: 'a,
+    {
+        <Self as ValueEnum>::value_variants()
     }
 }
 
