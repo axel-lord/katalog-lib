@@ -42,6 +42,12 @@ impl Display for ThemeValueEnum {
 #[repr(transparent)]
 pub struct ThemeValueEnumFromStringError(pub String);
 
+impl Default for ThemeValueEnum {
+    fn default() -> Self {
+        Self(&Theme::Dark)
+    }
+}
+
 impl TryFrom<String> for ThemeValueEnum {
     type Error = ThemeValueEnumFromStringError;
 
