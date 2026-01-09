@@ -74,6 +74,15 @@ impl SubscriberHandle {
     }
 }
 
+impl Default for SubscriberHandle {
+    fn default() -> Self {
+        Self {
+            subscriber_id: 0,
+            keep_alive: Weak::new(),
+        }
+    }
+}
+
 impl Hash for SubscriberHandle {
     fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
         self.subscriber_id.hash(state);
