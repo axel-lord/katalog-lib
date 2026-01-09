@@ -4,11 +4,11 @@ use ::core::{
     fmt::{Debug, Display},
     hash::Hash,
     ops::ControlFlow,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed},
     time::Duration,
 };
 use ::std::{
-    sync::Arc,
-    thread::{JoinHandle, Thread, ThreadId},
+    sync::{Arc, Weak},
     time::Instant,
 };
 
@@ -32,33 +32,57 @@ use iceoryx2::service::builder::event::EventOpenOrCreateError;
 
 /// Handle to subscriber thread.
 #[derive(Debug, Clone)]
-#[repr(transparent)]
 pub struct SubscriberHandle {
-    /// Thread handle.
-    handle: Arc<JoinHandle<()>>,
+    /// Id used for hashing and comparison.
+    subscriber_id: u64,
+    /// Keep alive variable, setting it to false will
+    /// kill subscriber.
+    keep_alive: Weak<AtomicBool>,
 }
 
 impl SubscriberHandle {
-    /// Check if the subscriber handle has been closed.
-    pub fn is_closed(&self) -> bool {
-        self.handle.is_finished()
+    /// Get a new instance with keep_alive arc.
+    fn new() -> (Self, Arc<AtomicBool>) {
+        static COUNTER: AtomicU64 = AtomicU64::new(1);
+        let subscriber_id = COUNTER.fetch_add(1, Relaxed);
+        let keep_alive_strong = Arc::new(AtomicBool::new(true));
+        let keep_alive = Arc::downgrade(&keep_alive_strong);
+
+        (
+            Self {
+                subscriber_id,
+                keep_alive,
+            },
+            keep_alive_strong,
+        )
     }
 
-    /// Get subscriber thread.
-    pub fn thread(&self) -> &Thread {
-        self.handle.thread()
+    /// Check if the subscriber is or is set to be closed.
+    pub fn is_closed(&self) -> bool {
+        let Some(keep_alive) = self.keep_alive.upgrade() else {
+            return true;
+        };
+
+        !keep_alive.load(Relaxed)
+    }
+
+    /// Set the subscriber to be closed.
+    pub fn close(&self) {
+        if let Some(keep_alive) = self.keep_alive.upgrade() {
+            keep_alive.store(false, Relaxed);
+        }
     }
 }
 
 impl Hash for SubscriberHandle {
     fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
-        ThreadId::hash(&self.thread().id(), state);
+        self.subscriber_id.hash(state);
     }
 }
 
 impl PartialEq for SubscriberHandle {
     fn eq(&self, other: &Self) -> bool {
-        self.thread().id() == other.thread().id()
+        self.subscriber_id == other.subscriber_id
     }
 }
 
@@ -89,6 +113,7 @@ type EventService = ::iceoryx2::service::port_factory::event::PortFactory<ipc_th
 fn build_node(name: &NodeName) -> Result<Node<ipc_threadsafe::Service>, NodeCreationFailure> {
     NodeBuilder::new()
         .name(name)
+        .signal_handling_mode(SignalHandlingMode::Disabled)
         .create::<ipc_threadsafe::Service>()
 }
 
@@ -160,19 +185,19 @@ where
         + From<ReceiveError>,
     S: 'static + Send + FnMut(&M) -> Result<(), E>,
 {
+    let (handle, keep_alive) = SubscriberHandle::new();
     ::std::thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
-            let receive_messages = move || -> Result<(), E> {
+            let receive_messages = || -> Result<(), E> {
                 let listener = event_service.listener_builder().create()?;
-                let mut should_listen = true;
-                while should_listen
+                while keep_alive.load(Relaxed)
                     && listener
                         .timed_wait_all(
                             |event| {
                                 if event == REPLACE_EVENT {
                                     ::log::info!("received replace event, exiting subscribe loop");
-                                    should_listen = false;
+                                    keep_alive.store(false, Relaxed);
                                 }
                             },
                             Duration::from_millis(200),
@@ -193,10 +218,9 @@ where
             }
 
             ::log::info!("closing ipc thread");
+            keep_alive.store(false, Relaxed);
         })
-        .map(|handle| SubscriberHandle {
-            handle: Arc::new(handle),
-        })
+        .map(|_| handle)
         .map_err(E::from)
 }
 
