@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = ["ipc",
 	"katalog-lib",
 	"reflect",
 	"reflect/derive",
@@ -50,3 +50,11 @@ katalog-lib-reflect = { path = "reflect" }
 clap = "4.5.53"
 derive_more = "2.1.1"
 iced_core = "0.14.0"
+bon = "3.8.2"
+iceoryx2 = "0.8.0"
+katalog-lib-widget = { path = "widget" }
+serde = "1.0.228"
+tap = "1.0.1"
+thiserror = "2.0.17"
+iceoryx2-bb-container = "0.8.0"
+log = "0.4.29"

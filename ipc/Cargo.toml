@@ -1,0 +1,17 @@
+[package]
+name = "katalog-lib-ipc"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+bon.workspace = true
+iceoryx2.workspace = true
+iceoryx2-bb-container.workspace = true
+log.workspace = true
+tap.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
