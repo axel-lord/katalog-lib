@@ -2,10 +2,15 @@
 
 use ::core::{
     fmt::{Debug, Display},
+    hash::Hash,
     ops::ControlFlow,
     time::Duration,
 };
-use ::std::{thread::JoinHandle, time::Instant};
+use ::std::{
+    sync::Arc,
+    thread::{JoinHandle, Thread, ThreadId},
+    time::Instant,
+};
 
 use ::iceoryx2::{
     node::{NodeCreationFailure, NodeWaitFailure},
@@ -24,6 +29,40 @@ use ::iceoryx2::{
     },
 };
 use iceoryx2::service::builder::event::EventOpenOrCreateError;
+
+/// Handle to subscriber thread.
+#[derive(Debug, Clone)]
+#[repr(transparent)]
+pub struct SubscriberHandle {
+    /// Thread handle.
+    handle: Arc<JoinHandle<()>>,
+}
+
+impl SubscriberHandle {
+    /// Check if the subscriber handle has been closed.
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_finished()
+    }
+
+    /// Get subscriber thread.
+    pub fn thread(&self) -> &Thread {
+        self.handle.thread()
+    }
+}
+
+impl Hash for SubscriberHandle {
+    fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
+        ThreadId::hash(&self.thread().id(), state);
+    }
+}
+
+impl PartialEq for SubscriberHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.thread().id() == other.thread().id()
+    }
+}
+
+impl Eq for SubscriberHandle {}
 
 /// Event used for notifying subscriber.
 const NOTIFY_EVENT: EventId = EventId::new(11);
@@ -109,7 +148,7 @@ fn create_subscriber_thread<M, E, S>(
     event_service: EventService,
     thread_name: String,
     mut receive: S,
-) -> Result<JoinHandle<()>, E>
+) -> Result<SubscriberHandle, E>
 where
     M: Debug + ZeroCopySend,
     E: 'static
@@ -154,6 +193,9 @@ where
             }
 
             ::log::info!("closing ipc thread");
+        })
+        .map(|handle| SubscriberHandle {
+            handle: Arc::new(handle),
         })
         .map_err(E::from)
 }
@@ -215,7 +257,7 @@ fn subscribe_only_<M, R, T, E>(
     thread_name: T,
     receive: R,
     timeout: Duration,
-) -> Result<JoinHandle<()>, E>
+) -> Result<SubscriberHandle, E>
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
@@ -288,7 +330,7 @@ fn single_process_<M, I, R, T, E>(
     thread_name: T,
     input: I,
     receive: R,
-) -> Result<ControlFlow<(), JoinHandle<()>>, E>
+) -> Result<ControlFlow<(), SubscriberHandle>, E>
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
@@ -353,7 +395,7 @@ pub fn subscribe_only<M, R, T, E>(
     /// For how long to attempt to replace other subscribers.
     #[builder(default = Duration::from_millis(200))]
     timeout: Duration,
-) -> Result<JoinHandle<()>, E>
+) -> Result<SubscriberHandle, E>
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
@@ -410,7 +452,7 @@ pub fn single_process<M, I, R, T, E>(
     input: I,
     /// Recevier for inputs sent from other processes if subscriber.
     receive: R,
-) -> Result<ControlFlow<(), JoinHandle<()>>, E>
+) -> Result<ControlFlow<(), SubscriberHandle>, E>
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
