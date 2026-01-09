@@ -10,9 +10,9 @@ clap.workspace = true
 katalog-lib-reflect.workspace = true
 katalog-lib-traits.workspace = true
 iced_core.workspace = true
-katalog-lib-widget = { path = "../widget" }
-serde = { version = "1.0.228", features = ["derive"] }
-thiserror = "2.0.17"
+katalog-lib-widget.workspace = true
+serde = { workspace = true, features = ["derive"] }
+thiserror.workspace = true
 derive_more = { workspace = true, features = ["from", "into"] }
 
 [lints]
