@@ -5,7 +5,7 @@ use ::core::{
     ops::ControlFlow,
     time::Duration,
 };
-use ::std::time::Instant;
+use ::std::{thread::JoinHandle, time::Instant};
 
 use ::iceoryx2::{
     node::{NodeCreationFailure, NodeWaitFailure},
@@ -109,7 +109,7 @@ fn create_subscriber_thread<M, E, S>(
     event_service: EventService,
     thread_name: String,
     mut receive: S,
-) -> Result<(), E>
+) -> Result<JoinHandle<()>, E>
 where
     M: Debug + ZeroCopySend,
     E: 'static
@@ -154,8 +154,8 @@ where
             }
 
             ::log::info!("closing ipc thread");
-        })?;
-    Ok(())
+        })
+        .map_err(E::from)
 }
 
 /// Publish input to eventual subscribers.
@@ -196,6 +196,91 @@ where
     Ok(())
 }
 
+/// Error returned when subscribe_only times out.
+#[derive(Debug, ::thiserror::Error)]
+#[error("subscribe_only reached timeout of {timeout:.4}s", timeout = timeout.as_secs_f64())]
+pub struct SubscribeOnlyTimeoutError {
+    /// Timeout that was reached.
+    pub timeout: Duration,
+}
+
+/// Setup ipc for subscribing only requesting any prior subscriber to stop subscribing.
+///
+/// # Errors
+/// If ipc cannot be setup, either due to invalid preconditions
+/// or the timout running out whilst asking other subscribers to step down.
+fn subscribe_only_<M, R, T, E>(
+    node_name: &'static str,
+    service_name: &'static str,
+    thread_name: T,
+    receive: R,
+    timeout: Duration,
+) -> Result<JoinHandle<()>, E>
+where
+    M: 'static + Debug + ZeroCopySend,
+    R: 'static + Send + FnMut(&M) -> Result<(), E>,
+    T: FnOnce() -> String,
+    E: 'static
+        + Display
+        + Send
+        + Sync
+        + From<::std::io::Error>
+        + From<EventOpenOrCreateError>
+        + From<ListenerCreateError>
+        + From<NodeCreationFailure>
+        + From<PublishSubscribeOpenOrCreateError>
+        + From<ReceiveError>
+        + From<SemanticStringError>
+        + From<ServiceNameError>
+        + From<SubscriberCreateError>
+        + From<NotifierCreateError>
+        + From<NotifierNotifyError>
+        + From<NodeWaitFailure>
+        + From<SubscribeOnlyTimeoutError>,
+{
+    let node_name = NodeName::new(node_name)?;
+    let service_name = ServiceName::new(service_name)?;
+
+    let node = build_node(&node_name)?;
+    let service = build_service::<M>(&service_name, &node)?;
+    let event_service = build_event_service(&service_name, &node)?;
+
+    match service.subscriber_builder().create() {
+        Ok(subscriber) => {
+            create_subscriber_thread(subscriber, event_service, thread_name(), receive)
+        }
+        Err(SubscriberCreateError::ExceedsMaxSupportedSubscribers) => {
+            let timeout_instant = Instant::now() + timeout;
+            let mut max_sleep = 0.002f64;
+            let notifier = event_service
+                .notifier_builder()
+                .default_event_id(REPLACE_EVENT)
+                .create()?;
+            loop {
+                max_sleep = (0.1f64).min(max_sleep * 2.0);
+                notifier.notify()?;
+                node.wait(Duration::from_secs_f64(::rand::random_range(
+                    0.0..=max_sleep,
+                )))?;
+
+                return match service.subscriber_builder().create() {
+                    Ok(subscriber) => {
+                        create_subscriber_thread(subscriber, event_service, thread_name(), receive)
+                    }
+                    Err(SubscriberCreateError::ExceedsMaxSupportedSubscribers) => {
+                        if Instant::now() > timeout_instant {
+                            return Err(SubscribeOnlyTimeoutError { timeout }.into());
+                        }
+                        continue;
+                    }
+                    Err(err) => Err(err.into()),
+                };
+            }
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
 /// Setup ipc for single process.
 fn single_process_<M, I, R, T, E>(
     node_name: &'static str,
@@ -203,7 +288,7 @@ fn single_process_<M, I, R, T, E>(
     thread_name: T,
     input: I,
     receive: R,
-) -> Result<ControlFlow<()>, E>
+) -> Result<ControlFlow<(), JoinHandle<()>>, E>
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
@@ -237,104 +322,12 @@ where
 
     match service.subscriber_builder().create() {
         Ok(subscriber) => {
-            create_subscriber_thread(subscriber, event_service, thread_name(), receive)?;
-            Ok(ControlFlow::Continue(()))
+            create_subscriber_thread(subscriber, event_service, thread_name(), receive)
+                .map(ControlFlow::Continue)
         }
         Err(SubscriberCreateError::ExceedsMaxSupportedSubscribers) => {
             publish_input::<M, I, E>(node, service, event_service, input)?;
             Ok(ControlFlow::Break(()))
-        }
-        Err(err) => Err(err.into()),
-    }
-}
-
-/// Error returned when subscribe_only times out.
-#[derive(Debug, ::thiserror::Error)]
-#[error("subscribe_only reached timeout of {timeout:.4}s", timeout = timeout.as_secs_f64())]
-pub struct SubscribeOnlyTimeoutError {
-    /// Timeout that was reached.
-    pub timeout: Duration,
-}
-
-/// Setup ipc for subscribing only requesting any prior subscriber to stop subscribing.
-///
-/// # Errors
-/// If ipc cannot be setup, either due to invalid preconditions
-/// or the timout running out whilst asking other subscribers to step down.
-pub fn subscribe_only_<M, R, T, E>(
-    node_name: &'static str,
-    service_name: &'static str,
-    thread_name: T,
-    receive: R,
-    timeout: Duration,
-) -> Result<(), E>
-where
-    M: 'static + Debug + ZeroCopySend,
-    R: 'static + Send + FnMut(&M) -> Result<(), E>,
-    T: FnOnce() -> String,
-    E: 'static
-        + Display
-        + Send
-        + Sync
-        + From<::std::io::Error>
-        + From<EventOpenOrCreateError>
-        + From<ListenerCreateError>
-        + From<NodeCreationFailure>
-        + From<PublishSubscribeOpenOrCreateError>
-        + From<ReceiveError>
-        + From<SemanticStringError>
-        + From<ServiceNameError>
-        + From<SubscriberCreateError>
-        + From<NotifierCreateError>
-        + From<NotifierNotifyError>
-        + From<NodeWaitFailure>
-        + From<SubscribeOnlyTimeoutError>,
-{
-    let node_name = NodeName::new(node_name)?;
-    let service_name = ServiceName::new(service_name)?;
-
-    let node = build_node(&node_name)?;
-    let service = build_service::<M>(&service_name, &node)?;
-    let event_service = build_event_service(&service_name, &node)?;
-
-    match service.subscriber_builder().create() {
-        Ok(subscriber) => {
-            create_subscriber_thread(subscriber, event_service, thread_name(), receive)?;
-            Ok(())
-        }
-        Err(SubscriberCreateError::ExceedsMaxSupportedSubscribers) => {
-            let timeout_instant = Instant::now() + timeout;
-            let mut max_sleep = 0.002f64;
-            let notifier = event_service
-                .notifier_builder()
-                .default_event_id(REPLACE_EVENT)
-                .create()?;
-            loop {
-                max_sleep = (0.1f64).min(max_sleep * 2.0);
-                notifier.notify()?;
-                node.wait(Duration::from_secs_f64(::rand::random_range(
-                    0.0..=max_sleep,
-                )))?;
-
-                return match service.subscriber_builder().create() {
-                    Ok(subscriber) => {
-                        create_subscriber_thread(
-                            subscriber,
-                            event_service,
-                            thread_name(),
-                            receive,
-                        )?;
-                        Ok(())
-                    }
-                    Err(SubscriberCreateError::ExceedsMaxSupportedSubscribers) => {
-                        if Instant::now() > timeout_instant {
-                            return Err(SubscribeOnlyTimeoutError { timeout }.into());
-                        }
-                        continue;
-                    }
-                    Err(err) => Err(err.into()),
-                };
-            }
         }
         Err(err) => Err(err.into()),
     }
@@ -360,7 +353,7 @@ pub fn subscribe_only<M, R, T, E>(
     /// For how long to attempt to replace other subscribers.
     #[builder(default = Duration::from_millis(200))]
     timeout: Duration,
-) -> Result<(), E>
+) -> Result<JoinHandle<()>, E>
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
@@ -417,7 +410,7 @@ pub fn single_process<M, I, R, T, E>(
     input: I,
     /// Recevier for inputs sent from other processes if subscriber.
     receive: R,
-) -> Result<ControlFlow<()>, E>
+) -> Result<ControlFlow<(), JoinHandle<()>>, E>
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
