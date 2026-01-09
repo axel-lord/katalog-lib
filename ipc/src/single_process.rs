@@ -157,7 +157,7 @@ where
         + From<PublisherCreateError>
         + From<NotifierCreateError>
         + From<LoanError>,
-    I: FnOnce() -> M,
+    I: FnOnce() -> Result<M, E>,
 {
     let publisher = service.publisher_builder().create()?;
     let notifier = event_service
@@ -166,7 +166,7 @@ where
         .create()?;
 
     let message = publisher.loan_uninit()?;
-    let message = message.write_payload(input());
+    let message = message.write_payload(input()?);
     message.send()?;
     ::log::info!("sent ipc message");
     let wait_result = if let Err(err) = notifier.notify() {
@@ -192,7 +192,7 @@ fn single_process_<M, I, R, T, E>(
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
-    I: FnOnce() -> M,
+    I: FnOnce() -> Result<M, E>,
     T: FnOnce() -> String,
     E: 'static
         + Send
@@ -255,7 +255,7 @@ pub fn single_process<M, I, R, T, E>(
 where
     M: 'static + Debug + ZeroCopySend,
     R: 'static + Send + FnMut(&M) -> Result<(), E>,
-    I: FnOnce() -> M,
+    I: FnOnce() -> Result<M, E>,
     T: FnOnce() -> String,
     E: 'static
         + Send
