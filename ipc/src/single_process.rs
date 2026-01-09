@@ -5,14 +5,15 @@ use ::core::{
     ops::ControlFlow,
     time::Duration,
 };
+use ::std::time::Instant;
 
 use ::iceoryx2::{
-    node::NodeCreationFailure,
+    node::{NodeCreationFailure, NodeWaitFailure},
     port::{
         LoanError, ReceiveError, SendError,
         client::RequestSendError,
         listener::ListenerCreateError,
-        notifier::NotifierCreateError,
+        notifier::{NotifierCreateError, NotifierNotifyError},
         publisher::PublisherCreateError,
         subscriber::{Subscriber, SubscriberCreateError},
     },
@@ -26,6 +27,9 @@ use iceoryx2::service::builder::event::EventOpenOrCreateError;
 
 /// Event used for notifying subscriber.
 const NOTIFY_EVENT: EventId = EventId::new(11);
+
+/// Event used for notifying subscriber.
+const REPLACE_EVENT: EventId = EventId::new(13);
 
 /// Type alias for port factory.
 type PublishSubscribePortFactory<M> =
@@ -120,17 +124,28 @@ where
     ::std::thread::Builder::new()
         .name(thread_name)
         .spawn(move || {
-            let mut receive_messages = move || -> Result<(), E> {
+            let receive_messages = move || -> Result<(), E> {
                 let listener = event_service.listener_builder().create()?;
-                while listener
-                    .timed_wait_all(|_| {}, Duration::from_millis(200))
-                    .is_ok()
+                let mut should_listen = true;
+                while should_listen
+                    && listener
+                        .timed_wait_all(
+                            |event| {
+                                if event == REPLACE_EVENT {
+                                    ::log::info!("received replace event, exiting subscribe loop");
+                                    should_listen = false;
+                                }
+                            },
+                            Duration::from_millis(200),
+                        )
+                        .is_ok()
                 {
                     while let Some(message) = subscriber.receive()? {
                         ::log::info!("received ipc message");
                         receive(&message)?;
                     }
                 }
+                drop(subscriber);
                 Ok(())
             };
 
@@ -233,6 +248,156 @@ where
     }
 }
 
+/// Error returned when subscribe_only times out.
+#[derive(Debug, ::thiserror::Error)]
+#[error("subscribe_only reached timeout of {timeout:.4}s", timeout = timeout.as_secs_f64())]
+pub struct SubscribeOnlyTimeoutError {
+    /// Timeout that was reached.
+    pub timeout: Duration,
+}
+
+/// Setup ipc for subscribing only requesting any prior subscriber to stop subscribing.
+///
+/// # Errors
+/// If ipc cannot be setup, either due to invalid preconditions
+/// or the timout running out whilst asking other subscribers to step down.
+pub fn subscribe_only_<M, R, T, E>(
+    node_name: &'static str,
+    service_name: &'static str,
+    thread_name: T,
+    receive: R,
+    timeout: Duration,
+) -> Result<(), E>
+where
+    M: 'static + Debug + ZeroCopySend,
+    R: 'static + Send + FnMut(&M) -> Result<(), E>,
+    T: FnOnce() -> String,
+    E: 'static
+        + Display
+        + Send
+        + Sync
+        + From<::std::io::Error>
+        + From<EventOpenOrCreateError>
+        + From<ListenerCreateError>
+        + From<NodeCreationFailure>
+        + From<PublishSubscribeOpenOrCreateError>
+        + From<ReceiveError>
+        + From<SemanticStringError>
+        + From<ServiceNameError>
+        + From<SubscriberCreateError>
+        + From<NotifierCreateError>
+        + From<NotifierNotifyError>
+        + From<NodeWaitFailure>
+        + From<SubscribeOnlyTimeoutError>,
+{
+    let node_name = NodeName::new(node_name)?;
+    let service_name = ServiceName::new(service_name)?;
+
+    let node = build_node(&node_name)?;
+    let service = build_service::<M>(&service_name, &node)?;
+    let event_service = build_event_service(&service_name, &node)?;
+
+    match service.subscriber_builder().create() {
+        Ok(subscriber) => {
+            create_subscriber_thread(subscriber, event_service, thread_name(), receive)?;
+            Ok(())
+        }
+        Err(SubscriberCreateError::ExceedsMaxSupportedSubscribers) => {
+            let timeout_instant = Instant::now() + timeout;
+            let mut max_sleep = 0.002f64;
+            let notifier = event_service
+                .notifier_builder()
+                .default_event_id(REPLACE_EVENT)
+                .create()?;
+            loop {
+                max_sleep = (0.1f64).min(max_sleep * 2.0);
+                notifier.notify()?;
+                node.wait(Duration::from_secs_f64(::rand::random_range(
+                    0.0..=max_sleep,
+                )))?;
+
+                return match service.subscriber_builder().create() {
+                    Ok(subscriber) => {
+                        create_subscriber_thread(
+                            subscriber,
+                            event_service,
+                            thread_name(),
+                            receive,
+                        )?;
+                        Ok(())
+                    }
+                    Err(SubscriberCreateError::ExceedsMaxSupportedSubscribers) => {
+                        if Instant::now() > timeout_instant {
+                            return Err(SubscribeOnlyTimeoutError { timeout }.into());
+                        }
+                        continue;
+                    }
+                    Err(err) => Err(err.into()),
+                };
+            }
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+/// Setup ipc for subscribing only requesting any prior subscriber to stop subscribing.
+///
+/// # Errors
+/// If ipc cannot be setup, either due to invalid preconditions
+/// or the timout running out whilst asking other subscribers to step down.
+#[bon::builder]
+#[builder(finish_fn = setup)]
+pub fn subscribe_only<M, R, T, E>(
+    /// Name to give ipc node.
+    node_name: &'static str,
+    /// Name to give single_process service.
+    #[builder(default = "single_process")]
+    service_name: &'static str,
+    /// Name of subscriber thread.
+    thread_name: Option<T>,
+    /// Recevier for inputs sent from other processes if subscriber.
+    receive: R,
+    /// For how long to attempt to replace other subscribers.
+    #[builder(default = Duration::from_millis(200))]
+    timeout: Duration,
+) -> Result<(), E>
+where
+    M: 'static + Debug + ZeroCopySend,
+    R: 'static + Send + FnMut(&M) -> Result<(), E>,
+    T: FnOnce() -> String,
+    E: 'static
+        + Display
+        + Send
+        + Sync
+        + From<::std::io::Error>
+        + From<EventOpenOrCreateError>
+        + From<ListenerCreateError>
+        + From<NodeCreationFailure>
+        + From<PublishSubscribeOpenOrCreateError>
+        + From<ReceiveError>
+        + From<SemanticStringError>
+        + From<ServiceNameError>
+        + From<SubscriberCreateError>
+        + From<NotifierCreateError>
+        + From<NotifierNotifyError>
+        + From<NodeWaitFailure>
+        + From<SubscribeOnlyTimeoutError>,
+{
+    subscribe_only_(
+        node_name,
+        service_name,
+        move || {
+            if let Some(thread_name) = thread_name {
+                thread_name()
+            } else {
+                "single_process_subscriber".to_owned()
+            }
+        },
+        receive,
+        timeout,
+    )
+}
+
 /// Setup ipc for single process.
 ///
 /// # Errors
@@ -244,6 +409,7 @@ pub fn single_process<M, I, R, T, E>(
     /// Name to give ipc node.
     node_name: &'static str,
     /// Name to give single_process service.
+    #[builder(default = "single_process")]
     service_name: &'static str,
     /// Name of eventual subscriber thread.
     thread_name: Option<T>,

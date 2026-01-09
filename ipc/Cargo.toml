@@ -12,6 +12,7 @@ iceoryx2-bb-container.workspace = true
 log.workspace = true
 tap.workspace = true
 thiserror.workspace = true
+rand = "0.9.2"
 
 [lints]
 workspace = true
