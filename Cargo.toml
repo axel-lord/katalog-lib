@@ -1,6 +1,8 @@
 [workspace]
-members = ["ipc",
+members = [
+	"ipc",
 	"katalog-lib",
+	"proc-macro-common",
 	"reflect",
 	"reflect/derive",
 	"reflect/derive-lib",
