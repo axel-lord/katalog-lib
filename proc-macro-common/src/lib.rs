@@ -40,6 +40,12 @@ pub mod err_collector {
             (value, ErrCollector { value: (), err })
         }
 
+        /// Replace current value with `value`.
+        pub fn with<V>(self, value: V) -> ErrCollector<C, V> {
+            let Self { value: _, err } = self;
+            ErrCollector { value, err }
+        }
+
         /// Convert a result with a single error into an error collection.
         pub fn from_result<E>(result: Result<T, E>) -> Self
         where

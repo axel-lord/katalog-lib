@@ -1,6 +1,7 @@
 [workspace]
 members = [
-	"dispatch", 
+	"dispatch",
+	"dispatch/dispatch-test", 
 	"dispatch/dispatch-lib",
 	"ipc",
 	"katalog-lib",
@@ -43,7 +44,7 @@ unused_result_ok = "warn"
 [workspace.dependencies]
 katalog-lib-reflect-derive-lib = { path = "reflect/derive-lib" }
 syn = { version = "2.0.111", default-features = false, features = ["full", "parsing", "printing"] }
-proc-macro2 = { version = "1.0.103", default-features = false }
+proc-macro2 = { version = "1.0.103" }
 convert_case = "0.10.0"
 quote = { version = "1.0.42", default-features = false }
 rustc-hash = "2.1.1"
