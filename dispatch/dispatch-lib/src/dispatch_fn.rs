@@ -1,12 +1,13 @@
 //! Ast for fucntion templates.
 
-use ::proc_macro2::TokenStream;
+use ::proc_macro2::{Span, TokenStream};
 use ::quote::ToTokens;
 use ::syn::{
-    Block, Generics, Ident, Path, ReturnType, Token, braced,
+    Arm, Block, Expr, ExprBlock, ExprCall, ExprReference, ExprTuple, Generics, Ident, Pat, PatPath,
+    Path, QSelf, ReturnType, Token, Type, TypePath, TypeTuple, Variant, braced,
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
-    punctuated::Punctuated,
+    punctuated::{Pair, Punctuated},
     token,
 };
 
@@ -47,7 +48,211 @@ pub struct DispatchFn {
     pub trailing_semi: Option<Token![;]>,
 }
 
-impl DispatchFn {}
+impl DispatchFn {
+    /// Get a call path.
+    fn call_path(&self, ty: &Type) -> PatPath {
+        const fn empty_path() -> Path {
+            Path {
+                leading_colon: None,
+                segments: Punctuated::new(),
+            }
+        }
+        fn ident_to_boxed_type(ident: impl Into<Ident>) -> Box<Type> {
+            Box::new(
+                TypePath {
+                    qself: None,
+                    path: Path::from(ident),
+                }
+                .into(),
+            )
+        }
+        let (qself, mut path) = self
+            .prefix
+            .as_ref()
+            .map(|prefix| match prefix {
+                PathPrefix::SelfTy {
+                    lt_token,
+                    self_ty: _,
+                    gt_token,
+                } => (
+                    Some(QSelf {
+                        lt_token: *lt_token,
+                        ty: Box::new(ty.clone()),
+                        position: 0,
+                        as_token: None,
+                        gt_token: *gt_token,
+                    }),
+                    empty_path(),
+                ),
+                PathPrefix::QualifiedSelf(Qualified {
+                    lt_token,
+                    value: _,
+                    as_token,
+                    path,
+                    gt_token,
+                }) => (
+                    Some(QSelf {
+                        lt_token: *lt_token,
+                        ty: Box::new(ty.clone()),
+                        position: path.segments.len(),
+                        as_token: Some(*as_token),
+                        gt_token: *gt_token,
+                    }),
+                    path.clone(),
+                ),
+                PathPrefix::Qualified(Qualified {
+                    lt_token,
+                    value,
+                    as_token,
+                    path,
+                    gt_token,
+                }) => (
+                    Some(QSelf {
+                        lt_token: *lt_token,
+                        ty: value.clone(),
+                        position: path.segments.len(),
+                        as_token: Some(*as_token),
+                        gt_token: *gt_token,
+                    }),
+                    path.clone(),
+                ),
+            })
+            .unwrap_or_else(|| (None, empty_path()));
+
+        if path.segments.is_empty() {
+            path = self.path.clone();
+        } else {
+            let Path {
+                leading_colon,
+                segments,
+            } = &self.path;
+            if let Some(leading_colon) = &leading_colon {
+                path.segments.push_punct(*leading_colon);
+            }
+            path.segments
+                .extend(segments.pairs().map(|pair| pair.cloned()));
+        }
+
+        PatPath {
+            attrs: Vec::new(),
+            qself,
+            path,
+        }
+    }
+
+    /// Generate a cell for receiver with type ty.
+    fn call(&self, expr: Option<Expr>, ty: &Type) -> ExprCall {
+        fn ident_to_expr(ident: Ident) -> Expr {
+            Expr::Path(PatPath {
+                attrs: Vec::new(),
+                qself: None,
+                path: Path::from(ident.clone()),
+            })
+        }
+        let DispatchParameters {
+            paren_token,
+            receiver,
+            infix_comma,
+            parameters,
+        } = &self.parameters;
+        ExprCall {
+            attrs: Vec::new(),
+            func: Box::new(self.call_path(ty).into()),
+            paren_token: *paren_token,
+            args: {
+                let mut args = Punctuated::new();
+                args.push(expr.unwrap_or_else(|| ident_to_expr(receiver.self_token.into())));
+
+                if let Some(infix_comma) = infix_comma {
+                    args.push_punct(*infix_comma);
+                    args.extend(parameters.pairs().map(|pair| match pair {
+                        Pair::Punctuated(value, punct) => {
+                            Pair::Punctuated(ident_to_expr(value.ident.clone()), *punct)
+                        }
+                        Pair::End(value) => Pair::End(ident_to_expr(value.ident.clone())),
+                    }));
+                }
+
+                args
+            },
+        }
+    }
+
+    /// Generate a match arm for given variant.
+    fn match_arm(&self, ident: &Ident, variant: &Variant) -> Arm {
+        let Variant {
+            ident: variant_ident,
+            fields,
+            ..
+        } = variant;
+
+        let path = Path {
+            leading_colon: None,
+            segments: {
+                let mut segments = Punctuated::new();
+                segments.push(ident.clone().into());
+                segments.push_punct(Token![::](ident.span()));
+                segments.push(variant_ident.clone().into());
+                segments
+            },
+        };
+        let (pat, body) = match fields {
+            ::syn::Fields::Named(fields_named) => todo!(),
+            ::syn::Fields::Unnamed(fields_unnamed) => todo!(),
+            ::syn::Fields::Unit => (
+                Pat::from(PatPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path,
+                }),
+                self.block
+                    .as_ref()
+                    .map(|block| {
+                        Box::new(Expr::from(ExprBlock {
+                            attrs: Vec::new(),
+                            label: None,
+                            block: block.clone(),
+                        }))
+                    })
+                    .unwrap_or_else(|| {
+                        Box::new(Expr::from(self.call(
+                            Some({
+                                let expr = Expr::from(ExprTuple {
+                                    attrs: Vec::new(),
+                                    paren_token: token::Paren(variant_ident.span()),
+                                    elems: Punctuated::new(),
+                                });
+
+                                if let Some((reference, ..)) = &self.parameters.receiver.reference {
+                                    Expr::from(ExprReference {
+                                        attrs: Vec::new(),
+                                        and_token: *reference,
+                                        mutability: self.parameters.receiver.mutability,
+                                        expr: Box::new(expr),
+                                    })
+                                } else {
+                                    expr
+                                }
+                            }),
+                            &Type::from(TypeTuple {
+                                paren_token: token::Paren(variant_ident.span()),
+                                elems: Punctuated::new(),
+                            }),
+                        )))
+                    }),
+            ),
+        };
+
+        Arm {
+            attrs: Vec::new(),
+            pat,
+            guard: None,
+            fat_arrow_token: Token![=>](Span::call_site()),
+            body,
+            comma: Some(Token![,](Span::call_site())),
+        }
+    }
+}
 
 impl ToTokens for DispatchFn {
     fn to_tokens(&self, tokens: &mut TokenStream) {
