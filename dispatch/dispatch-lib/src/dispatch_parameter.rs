@@ -1,6 +1,8 @@
 //! Ast fo parameters of dispatch functions.
 
-use ::proc_macro2::TokenStream;
+use ::std::collections::BTreeSet;
+
+use ::proc_macro2::{Span, TokenStream};
 use ::quote::ToTokens;
 use ::syn::{
     Attribute, FnArg, Ident, Pat, PatIdent, PatType, Receiver, Token, Type, parenthesized,
@@ -87,6 +89,39 @@ pub struct DispatchParameters {
     pub infix_comma: Option<Token![,]>,
     /// Additional parameters.
     pub parameters: Punctuated<IdentType, Token![,]>,
+}
+
+impl DispatchParameters {
+    /// Get an ident for self not without any overlap with parameters.
+    pub fn this_ident(&self, span: Span) -> Ident {
+        let set = self
+            .parameters
+            .iter()
+            .map(|param| {
+                const RAW_PREFIX: &str = "r#";
+                let mut ident = param.ident.to_string();
+                if ident.starts_with(RAW_PREFIX) {
+                    ident.drain(..RAW_PREFIX.len()).for_each(drop);
+                }
+                ident
+            })
+            .collect::<BTreeSet<_>>();
+
+        const IDENT_PREFIX: &str = "__this";
+
+        if !set.contains(IDENT_PREFIX) {
+            return Ident::new(IDENT_PREFIX, span);
+        }
+
+        for i in 1..=self.parameters.len() {
+            let ident = format!("{IDENT_PREFIX}{i}");
+            if !set.contains(&ident) {
+                return Ident::new(&ident, span);
+            }
+        }
+
+        unreachable!("more idents than parameters equal to some parameter")
+    }
 }
 
 impl ToTokens for DispatchParameters {

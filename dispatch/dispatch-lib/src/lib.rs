@@ -17,6 +17,8 @@ pub mod dispatch_fn;
 pub mod dispatch_parameter;
 pub mod path_prefix;
 
+pub(crate) mod util;
+
 /// Macro to implement dispatch.
 pub fn derive_dispatch(item: TokenStream) -> TokenStream {
     dispatch(item).unwrap_or_else(::syn::Error::into_compile_error)

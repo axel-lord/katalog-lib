@@ -14,6 +14,7 @@ use ::syn::{
 use crate::{
     dispatch_parameter::DispatchParameters,
     path_prefix::{PathPrefix, Qualified},
+    util::ident_to_expr,
 };
 
 /// Dispatch function template.
@@ -141,19 +142,12 @@ impl DispatchFn {
     }
 
     /// Generate a cell for receiver with type ty.
-    fn call(&self, expr: Option<Expr>, ty: &Type) -> ExprCall {
-        fn ident_to_expr(ident: Ident) -> Expr {
-            Expr::Path(PatPath {
-                attrs: Vec::new(),
-                qself: None,
-                path: Path::from(ident.clone()),
-            })
-        }
+    fn call(&self, expr: Expr, ty: &Type) -> ExprCall {
         let DispatchParameters {
             paren_token,
-            receiver,
             infix_comma,
             parameters,
+            ..
         } = &self.parameters;
         ExprCall {
             attrs: Vec::new(),
@@ -161,7 +155,7 @@ impl DispatchFn {
             paren_token: *paren_token,
             args: {
                 let mut args = Punctuated::new();
-                args.push(expr.unwrap_or_else(|| ident_to_expr(receiver.self_token.into())));
+                args.push(expr);
 
                 if let Some(infix_comma) = infix_comma {
                     args.push_punct(*infix_comma);
@@ -179,7 +173,7 @@ impl DispatchFn {
     }
 
     /// Generate a match arm for given variant.
-    fn match_arm(&self, ident: &Ident, variant: &Variant) -> Arm {
+    fn match_arm(&self, ident: &Ident, variant: &Variant, this_ident: Ident) -> Arm {
         let Variant {
             ident: variant_ident,
             fields,
@@ -216,7 +210,7 @@ impl DispatchFn {
                     })
                     .unwrap_or_else(|| {
                         Box::new(Expr::from(self.call(
-                            Some({
+                            {
                                 let expr = Expr::from(ExprTuple {
                                     attrs: Vec::new(),
                                     paren_token: token::Paren(variant_ident.span()),
@@ -233,7 +227,7 @@ impl DispatchFn {
                                 } else {
                                     expr
                                 }
-                            }),
+                            },
                             &Type::from(TypeTuple {
                                 paren_token: token::Paren(variant_ident.span()),
                                 elems: Punctuated::new(),
