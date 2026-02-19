@@ -1,120 +1,62 @@
 //! Implementation for dispatch derive macro.
+#![allow(missing_debug_implementations)]
 
+use ::katalog_lib_proc_macro_common::err_collector::ErrCollector;
 use ::proc_macro2::TokenStream;
+use ::quote::ToTokens;
 use ::syn::{
-    Block, Ident, ItemEnum, Path, Signature, Token, braced, parse::{Parse, Parser}, spanned::Spanned, token
+    ItemEnum, Token, braced,
+    parse::{Parse, Parser},
+    punctuated::Punctuated,
+    token,
 };
+
+use crate::dispatch_fn::DispatchFn;
+
+pub mod dispatch_fn;
+pub mod dispatch_parameter;
+pub mod path_prefix;
 
 /// Macro to implement dispatch.
 pub fn derive_dispatch(item: TokenStream) -> TokenStream {
     dispatch(item).unwrap_or_else(::syn::Error::into_compile_error)
 }
 
-/// Function signature for dispatch function.
-struct DispatchSignature {
-    /// fn token.
-    fn_token: Token![fn],
-    /// Self token replaced by type in calls.
-    self_ty: Option<Token![Self]>,
-    /// Path to function.
-    path: Path,
-}
-
-/// Parsed dispatch function.
-struct DispatchFn {
-    /// Function signature.
-    signature: Signature,
-    /// Optional block.
-    block: Option<Block>,
-    /// Trailing semicolon if block is None.
-    semi: Option<Token![;]>,
-}
-
-impl Parse for DispatchFn {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let signature = input.parse()?;
-        let lookahead = input.lookahead1();
-        let (block, semi) = if lookahead.peek(token::Brace) {
-            let content;
-            let brace_token = braced!(content in input);
-            let stmts = content.call(Block::parse_within)?;
-
-            (Some(Block { brace_token, stmts }), None)
-        } else if lookahead.peek(Token![;]) {
-            (None, Some(input.parse()?))
-        } else {
-            return Err(lookahead.error());
-        };
-
-        Ok(Self {
-            signature,
-            block,
-            semi,
-        })
-    }
-}
-
-/// Template used for creating dispatch function.
-struct DispatchTemplateFn {
-    /// Signature in impl block.
-    signature: Signature,
-    /// Self token of receiver in signature.
-    self_token: Token![self],
-    /// Default block for unit variants.
-    block: Option<Block>,
-}
-
-impl TryFrom<DispatchFn> for DispatchTemplateFn {
-    type Error = ::syn::Error;
-
-    fn try_from(value: DispatchFn) -> Result<Self, Self::Error> {
-        let DispatchFn {
-            mut signature,
-            block,
-            ..
-        } = value;
-
-        let self_token = if let Some(receiver) = signature.receiver() {
-
-
-
-            receiver.self_token
-        } else {
-            return Err(::syn::Error::new(
-                signature.inputs.span(),
-                "expected a receiver (self)",
-            ));
-        };
-
-
-
-        Ok(Self {
-            signature,
-            self_token,
-            block,
-        })
-    }
-}
-
 /// Dispatch impl attribute.
-struct ImplAttr {
+pub struct ImplAttr {
     /// Impl token.
-    impl_token: Token![impl],
+    pub impl_token: Token![impl],
     /// braces '{}'.
-    brace_token: token::Brace,
+    pub brace_token: token::Brace,
     /// Dispatch functions.
-    functions: Vec<DispatchFn>,
+    pub functions: Vec<DispatchFn>,
+}
+
+impl ToTokens for ImplAttr {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            impl_token,
+            brace_token,
+            functions,
+        } = self;
+        impl_token.to_tokens(tokens);
+        brace_token.surround(tokens, |tokens| {
+            for function in functions {
+                function.to_tokens(tokens);
+            }
+        });
+    }
 }
 
 impl Parse for ImplAttr {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+    fn parse(input: ::syn::parse::ParseStream) -> ::syn::Result<Self> {
         let impl_token = input.parse()?;
         let content;
         let brace_token = braced!(content in input);
         let mut functions = Vec::new();
 
-        while !input.is_empty() {
-            functions.push(input.parse()?);
+        while !content.is_empty() {
+            functions.push(content.parse()?);
         }
 
         Ok(Self {
@@ -125,8 +67,51 @@ impl Parse for ImplAttr {
     }
 }
 
+/// Dispatch attributes.
+pub enum DispatchAttr {
+    /// Impl block attribute.
+    Impl(ImplAttr),
+}
+
+impl Parse for DispatchAttr {
+    fn parse(input: ::syn::parse::ParseStream) -> ::syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(Token![impl]) {
+            Ok(DispatchAttr::Impl(input.parse()?))
+        } else {
+            Err(lookahead.error())
+        }
+    }
+}
+
 /// Dispatch impl.
 fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
-    let _item_enum = ItemEnum::parse.parse2(item)?;
-    Ok(Default::default())
+    let item_enum = ItemEnum::parse.parse2(item)?;
+
+    let mut errors = ErrCollector::<Vec<::syn::Error>>::default();
+    let mut dispatch_functions = Vec::new();
+    for attr in &item_enum.attrs {
+        if !attr.path().is_ident("dispatch") {
+            continue;
+        }
+
+        let attrs =
+            match attr.parse_args_with(Punctuated::<DispatchAttr, Token![,]>::parse_terminated) {
+                Ok(attrs) => attrs,
+                Err(err) => {
+                    errors.push_err(err);
+                    continue;
+                }
+            };
+
+        for attr in attrs {
+            match attr {
+                DispatchAttr::Impl(impl_attr) => {
+                    dispatch_functions.extend(impl_attr.functions);
+                }
+            }
+        }
+    }
+
+    errors.with(TokenStream::default()).into_result()
 }

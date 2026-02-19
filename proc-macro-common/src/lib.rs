@@ -7,7 +7,7 @@ pub mod err_collector {
 
     /// Collect errors into collection C of errors E or valid values into T.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-    pub struct ErrCollector<C, T> {
+    pub struct ErrCollector<C, T = ()> {
         /// Valid value storage.
         pub value: T,
         /// Error collector.

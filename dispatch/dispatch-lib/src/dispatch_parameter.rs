@@ -1,0 +1,130 @@
+//! Ast fo parameters of dispatch functions.
+
+use ::proc_macro2::TokenStream;
+use ::quote::ToTokens;
+use ::syn::{
+    Attribute, FnArg, Ident, Pat, PatIdent, PatType, Receiver, Token, Type, parenthesized,
+    parse::{Parse, ParseStream},
+    punctuated::Punctuated,
+    token,
+};
+
+/// A single non receiver dispatch function template parameter.
+pub struct IdentType {
+    /// Parameter attributes.
+    pub attrs: Vec<Attribute>,
+    /// Parameter ident, unlinke with normal parameters may not be a pattern.
+    pub ident: Ident,
+    /// ':' token.
+    pub colon_token: Token![:],
+    /// Type of parameter.
+    pub ty: Box<Type>,
+}
+
+impl ToTokens for IdentType {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            attrs,
+            ident,
+            colon_token,
+            ty,
+        } = self;
+        for attr in attrs {
+            attr.to_tokens(tokens);
+        }
+        ident.to_tokens(tokens);
+        colon_token.to_tokens(tokens);
+        ty.to_tokens(tokens);
+    }
+}
+
+impl Parse for IdentType {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            attrs: input.call(Attribute::parse_outer)?,
+            ident: input.parse()?,
+            colon_token: input.parse()?,
+            ty: input.parse()?,
+        })
+    }
+}
+
+impl From<IdentType> for PatType {
+    fn from(value: IdentType) -> Self {
+        let IdentType {
+            attrs,
+            ident,
+            colon_token,
+            ty,
+        } = value;
+        PatType {
+            attrs,
+            pat: Box::new(Pat::from(PatIdent {
+                ident,
+                attrs: Vec::new(),
+                by_ref: None,
+                mutability: None,
+                subpat: None,
+            })),
+            colon_token,
+            ty,
+        }
+    }
+}
+
+impl From<IdentType> for FnArg {
+    fn from(value: IdentType) -> Self {
+        FnArg::Typed(value.into())
+    }
+}
+/// Parameters of dispatch function template.
+pub struct DispatchParameters {
+    /// Enclosing perentheses.
+    pub paren_token: token::Paren,
+    /// Required receiver as first argument, (self, &self, self: Arc<Self>, etc.)
+    pub receiver: Receiver,
+    /// Comma separating receiver and remaining parameters if any.
+    pub infix_comma: Option<Token![,]>,
+    /// Additional parameters.
+    pub parameters: Punctuated<IdentType, Token![,]>,
+}
+
+impl ToTokens for DispatchParameters {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            paren_token,
+            receiver,
+            infix_comma,
+            parameters,
+        } = self;
+        paren_token.surround(tokens, |tokens| {
+            receiver.to_tokens(tokens);
+            infix_comma.to_tokens(tokens);
+            parameters.to_tokens(tokens);
+        });
+    }
+}
+
+impl Parse for DispatchParameters {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        let paren_token = parenthesized!(content in input);
+        let receiver = content.parse()?;
+
+        let (infix_comma, parameters) = if !content.is_empty() {
+            (
+                Some(content.parse()?),
+                content.call(Punctuated::parse_terminated)?,
+            )
+        } else {
+            (None, Punctuated::default())
+        };
+
+        Ok(Self {
+            paren_token,
+            receiver,
+            infix_comma,
+            parameters,
+        })
+    }
+}
