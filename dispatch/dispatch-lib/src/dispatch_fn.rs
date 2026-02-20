@@ -1,5 +1,6 @@
 //! Ast for fucntion templates.
 
+use ::katalog_lib_proc_macro_common::lookahead_chain::LookaheadChain;
 use ::proc_macro2::{Span, TokenStream};
 use ::quote::ToTokens;
 use ::syn::{
@@ -301,22 +302,21 @@ impl Parse for DispatchFn {
 
         // Trick to create a new lookahead if for was matched thus not adding it
         // to the error message if matched whilst still having it be in the set if not matched.
-        let lookahead = input.lookahead1();
-        let lookahead = if lookahead.peek(Token![for]) {
-            for_token = input.parse()?;
 
-            if !input.peek(Token![<]) {
-                return Err(input.error("expected '<' after for"));
-            }
+        let (lookahead, (for_token_generics,)) =
+            input.lookahead1().chain_with(input, Token![for], |input| {
+                let for_token = input.parse::<Token![for]>()?;
 
-            generics = input.parse()?;
+                if !input.peek(Token![<]) {
+                    return Err(input.error("expected '<' after for"));
+                }
 
-            input.lookahead1()
-        } else {
-            for_token = None;
-            generics = Generics::default();
-            lookahead
-        };
+                let generics = input.parse::<Generics>()?;
+
+                Ok((for_token, generics))
+            })?;
+
+        let (for_token, generics) = for_token_generics.unwrap_or_default();
 
         let as_token;
         let ident;
