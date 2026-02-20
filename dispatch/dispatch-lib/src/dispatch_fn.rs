@@ -5,7 +5,8 @@ use ::proc_macro2::{Span, TokenStream};
 use ::quote::ToTokens;
 use ::syn::{
     Arm, Block, Expr, ExprBlock, ExprCall, ExprReference, ExprTuple, Generics, Ident, Pat, PatPath,
-    Path, QSelf, ReturnType, Token, Type, TypePath, TypeTuple, Variant, Visibility, braced,
+    Path, QSelf, ReturnType, Token, Type, TypePath, TypeTuple, Variant, Visibility, WhereClause,
+    braced,
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
     punctuated::{Pair, Punctuated},
@@ -377,22 +378,12 @@ impl Parse for DispatchFn {
 
         let parameters = input.parse()?;
 
-        let lookahead = input.lookahead1();
+        let (lookahead, (output, where_clause)) = input
+            .lookahead1()
+            .chain_with_or(input, Token![->], ReturnType::parse, || ReturnType::Default)?
+            .chain::<WhereClause>(input, Token![where])?;
 
-        let output;
-        let lookahead = if lookahead.peek(Token![->]) {
-            output = input.parse()?;
-            input.lookahead1()
-        } else {
-            output = ReturnType::Default;
-            lookahead
-        };
-        let lookahead = if lookahead.peek(Token![where]) {
-            generics.where_clause = Some(input.parse()?);
-            input.lookahead1()
-        } else {
-            lookahead
-        };
+        generics.where_clause = where_clause;
 
         let (block, trailing_semi) = if lookahead.peek(Token![;]) {
             (None, input.parse()?)

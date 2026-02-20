@@ -2,13 +2,26 @@
 
 use ::syn::parse::{Lookahead1, Parse, ParseStream, Peek};
 
+use crate::lookahead_chain::sealed::Sealed;
+
+#[doc(hidden)]
+mod sealed {
+    #[doc(hidden)]
+    pub trait Sealed {}
+}
+
 /// Chain lookahead peek and parse actions.
 pub trait LookaheadChain<'i>
 where
-    Self: Sized,
+    Self: Sized + Sealed,
 {
     /// Output of chain.
     type Output<T>;
+
+    #[doc(hidden)]
+    fn map_output<A, B, M>(output: Self::Output<A>, map: M) -> ::syn::Result<Self::Output<B>>
+    where
+        M: FnOnce(A) -> ::syn::Result<B>;
 
     /// Parse T if P is peeked.
     ///
@@ -81,7 +94,12 @@ where
         or: fn() -> T,
     ) -> ::syn::Result<(Lookahead1<'i>, Self::Output<T>)>
     where
-        P: Peek;
+        P: Peek,
+    {
+        let (lookahead, output) = self.chain_with(input, peek, with)?;
+        let output = Self::map_output(output, |value| Ok(value.unwrap_or_else(or)))?;
+        Ok((lookahead, output))
+    }
 
     /// Parse T using with if P is peeked.
     ///
@@ -127,11 +145,26 @@ where
         with: fn(ParseStream<'i>) -> ::syn::Result<T>,
     ) -> ::syn::Result<Self::Output<T>>
     where
-        P: Peek;
+        P: Peek,
+    {
+        let (lookahead, value) = self.chain_with(input, peek, with)?;
+        Self::map_output(value, |value| value.ok_or_else(|| lookahead.error()))
+    }
 }
+
+impl<'i> Sealed for Lookahead1<'i> {}
 
 impl<'i> LookaheadChain<'i> for Lookahead1<'i> {
     type Output<T> = (T,);
+
+    #[doc(hidden)]
+    fn map_output<A, B, M>(output: Self::Output<A>, map: M) -> ::syn::Result<Self::Output<B>>
+    where
+        M: FnOnce(A) -> ::syn::Result<B>,
+    {
+        let (value,) = output;
+        Ok((map(value)?,))
+    }
 
     fn chain_with<T, P>(
         self,
@@ -150,48 +183,25 @@ impl<'i> LookaheadChain<'i> for Lookahead1<'i> {
             Ok((self, (None,)))
         }
     }
-
-    fn chain_with_or<T, P>(
-        self,
-        input: ParseStream<'i>,
-        peek: P,
-        with: fn(ParseStream<'i>) -> syn::Result<T>,
-        or: fn() -> T,
-    ) -> syn::Result<(Lookahead1<'i>, Self::Output<T>)>
-    where
-        P: Peek,
-    {
-        if self.peek(peek) {
-            let value = input.call(with)?;
-            Ok((input.lookahead1(), (value,)))
-        } else {
-            Ok((self, (or(),)))
-        }
-    }
-
-    fn finish_with<T, P>(
-        self,
-        input: ParseStream<'i>,
-        peek: P,
-        with: fn(ParseStream<'i>) -> syn::Result<T>,
-    ) -> syn::Result<Self::Output<T>>
-    where
-        P: Peek,
-    {
-        if self.peek(peek) {
-            input.call(with).map(|value| (value,))
-        } else {
-            Err(self.error())
-        }
-    }
 }
 
 /// Macro to generate impls for tuples.
 macro_rules! lookahead_chain_tuple_impl {
     (@impl $($v:ident)+ ) => {
+        impl<'i, $($v),*> Sealed for (Lookahead1<'i>, ($($v,)*)) {}
+
         #[expect(non_snake_case)]
         impl<'i, $($v),*> LookaheadChain<'i> for (Lookahead1<'i>, ($($v,)*)) {
             type Output<T> = ($($v,)* T);
+
+            #[doc(hidden)]
+            fn map_output<A, B, M>(output: Self::Output<A>, map: M) -> ::syn::Result<Self::Output<B>>
+            where
+                M: FnOnce(A) -> ::syn::Result<B>
+            {
+                let ($($v,)* value,) = output;
+                Ok(($($v,)* map(value)?,))
+            }
 
             fn chain_with<T, P>(
                 self,
@@ -204,34 +214,6 @@ macro_rules! lookahead_chain_tuple_impl {
                 let (lookahead, ( $($v,)*)) = self;
                 let (lookahead, (value,)) = lookahead.chain_with(input, peek, with)?;
                 Ok((lookahead, ($($v,)* value,)))
-            }
-
-
-            fn chain_with_or<T, P>(
-                    self,
-                    input: ParseStream<'i>,
-                    peek: P,
-                    with: fn(ParseStream<'i>) -> syn::Result<T>,
-                    or: fn() -> T,
-                ) -> syn::Result<(Lookahead1<'i>, Self::Output<T>)>
-                where
-                    P: Peek {
-                let (lookahead, ( $($v,)*)) = self;
-                let (lookahead, (value,)) = lookahead.chain_with_or(input, peek, with, or)?;
-                Ok((lookahead, ($($v,)* value,)))
-            }
-
-            fn finish_with<T, P>(
-                self,
-                input: ParseStream<'i>,
-                peek: P,
-                with: fn(ParseStream<'i>) -> syn::Result<T>,
-            ) -> syn::Result<Self::Output<T>>
-            where
-                P: Peek {
-                let (lookahead, ( $($v,)*)) = self;
-                let (value,) = lookahead.finish_with(input, peek, with)?;
-                Ok(($($v,)* value,))
             }
         }
     };
