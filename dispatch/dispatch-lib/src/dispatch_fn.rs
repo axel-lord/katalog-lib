@@ -297,66 +297,31 @@ impl ToTokens for DispatchFn {
 
 impl Parse for DispatchFn {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let (lookahead, (for_token_generics,)) =
-            input.lookahead1().chain_with(input, Token![for], |input| {
-                let for_token = input.parse::<Option<Token![for]>>()?;
+        let ((for_token, mut generics), (as_token, ident), vis, constness, asyncness, fn_token) =
+            input
+                .lookahead1()
+                .chain_with_or_default(input, Token![for], |input| {
+                    let for_token = input.parse::<Option<Token![for]>>()?;
 
-                if !input.peek(Token![<]) {
-                    return Err(input.error("expected '<' after for"));
-                }
+                    if !input.peek(Token![<]) {
+                        return Err(input.error("expected '<' after for"));
+                    }
 
-                let generics = input.parse::<Generics>()?;
+                    let generics = input.parse::<Generics>()?;
 
-                Ok((for_token, generics))
-            })?;
-
-        let (for_token, mut generics) = for_token_generics.unwrap_or_default();
-
-        let as_token;
-        let ident;
-
-        let lookahead = if lookahead.peek(Token![as]) {
-            as_token = input.parse()?;
-            ident = Some(input.parse()?);
-            input.lookahead1()
-        } else {
-            as_token = None;
-            ident = None;
-            lookahead
-        };
-
-        let vis;
-        let lookahead = if lookahead.peek(Token![pub]) {
-            vis = input.parse()?;
-            input.lookahead1()
-        } else {
-            vis = Visibility::Inherited;
-            lookahead
-        };
-
-        let constness;
-        let lookahead = if lookahead.peek(Token![const]) {
-            constness = input.parse()?;
-            input.lookahead1()
-        } else {
-            constness = None;
-            lookahead
-        };
-
-        let asyncness;
-        let lookahead = if lookahead.peek(Token![async]) {
-            asyncness = input.parse()?;
-            input.lookahead1()
-        } else {
-            asyncness = None;
-            lookahead
-        };
-
-        let fn_token = if lookahead.peek(Token![fn]) {
-            input.parse()?
-        } else {
-            return Err(lookahead.error());
-        };
+                    Ok((for_token, generics))
+                })?
+                .chain_with_or_default(input, Token![as], |input| {
+                    let as_token = input.parse::<Option<Token![as]>>()?;
+                    let ident = Some(input.parse::<Ident>()?);
+                    Ok((as_token, ident))
+                })?
+                .chain_with_or(input, Token![pub], Visibility::parse, || {
+                    Visibility::Inherited
+                })?
+                .chain::<Token![const]>(input, Token![const])?
+                .chain::<Token![async]>(input, Token![async])?
+                .finish::<Token![fn]>(input, Token![fn])?;
 
         let leading_colon;
         let lookahead = input.lookahead1();

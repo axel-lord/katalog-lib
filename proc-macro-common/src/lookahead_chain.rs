@@ -17,16 +17,35 @@ where
     ///
     /// # Errors
     /// If peek returns true but T cannot be parsed.
-    fn chain<T, P>(
+    fn chain<T>(
         self,
         input: ParseStream<'i>,
-        peek: P,
+        peek: impl Peek,
     ) -> ::syn::Result<(Lookahead1<'i>, Self::Output<Option<T>>)>
     where
         T: Parse,
-        P: Peek,
     {
         self.chain_with(input, peek, T::parse)
+    }
+
+    /// Parse T if P is peeked.
+    ///
+    /// If T is parsed a new lookahead is created. Otherwise the same
+    /// one is returned.
+    ///
+    /// If P is not peeked [Default::default] for T is returned.
+    ///
+    /// # Errors
+    /// If peek returns true but T cannot be parsed.
+    fn chain_or_default<T>(
+        self,
+        input: ParseStream<'i>,
+        peek: impl Peek,
+    ) -> ::syn::Result<(Lookahead1<'i>, Self::Output<T>)>
+    where
+        T: Parse + Default,
+    {
+        self.chain_with_or(input, peek, T::parse, T::default)
     }
 
     /// Parse T using with if P is peeked.
@@ -45,14 +64,54 @@ where
     where
         P: Peek;
 
+    /// Parse T using with if P is peeked.
+    ///
+    /// If T is parsed a new lookahead is created. Otherwise the same
+    /// one is returned.
+    ///
+    /// `or` is used to get value of T if not parsed.
+    ///
+    /// # Errors
+    /// If peek returns true but T cannot be parsed.
+    fn chain_with_or<T, P>(
+        self,
+        input: ParseStream<'i>,
+        peek: P,
+        with: fn(ParseStream<'i>) -> ::syn::Result<T>,
+        or: fn() -> T,
+    ) -> ::syn::Result<(Lookahead1<'i>, Self::Output<T>)>
+    where
+        P: Peek;
+
+    /// Parse T using with if P is peeked.
+    ///
+    /// If T is parsed a new lookahead is created. Otherwise the same
+    /// one is returned.
+    ///
+    /// If P is not peeked [Default::default] for T is returned.
+    ///
+    /// # Errors
+    /// If peek returns true but T cannot be parsed.
+    fn chain_with_or_default<T, P>(
+        self,
+        input: ParseStream<'i>,
+        peek: P,
+        with: fn(ParseStream<'i>) -> ::syn::Result<T>,
+    ) -> ::syn::Result<(Lookahead1<'i>, Self::Output<T>)>
+    where
+        P: Peek,
+        T: Default,
+    {
+        self.chain_with_or(input, peek, with, T::default)
+    }
+
     /// Parse T if P is peeked, error if T cannot be parsed.
     ///
     /// # Errors
     /// If T cannot be parsed or peeked.
-    fn finish<T, P>(self, input: ParseStream<'i>, peek: P) -> ::syn::Result<Self::Output<T>>
+    fn finish<T>(self, input: ParseStream<'i>, peek: impl Peek) -> ::syn::Result<Self::Output<T>>
     where
         T: Parse,
-        P: Peek,
     {
         self.finish_with(input, peek, T::parse)
     }
@@ -92,6 +151,24 @@ impl<'i> LookaheadChain<'i> for Lookahead1<'i> {
         }
     }
 
+    fn chain_with_or<T, P>(
+        self,
+        input: ParseStream<'i>,
+        peek: P,
+        with: fn(ParseStream<'i>) -> syn::Result<T>,
+        or: fn() -> T,
+    ) -> syn::Result<(Lookahead1<'i>, Self::Output<T>)>
+    where
+        P: Peek,
+    {
+        if self.peek(peek) {
+            let value = input.call(with)?;
+            Ok((input.lookahead1(), (value,)))
+        } else {
+            Ok((self, (or(),)))
+        }
+    }
+
     fn finish_with<T, P>(
         self,
         input: ParseStream<'i>,
@@ -126,6 +203,21 @@ macro_rules! lookahead_chain_tuple_impl {
                 P: Peek {
                 let (lookahead, ( $($v,)*)) = self;
                 let (lookahead, (value,)) = lookahead.chain_with(input, peek, with)?;
+                Ok((lookahead, ($($v,)* value,)))
+            }
+
+
+            fn chain_with_or<T, P>(
+                    self,
+                    input: ParseStream<'i>,
+                    peek: P,
+                    with: fn(ParseStream<'i>) -> syn::Result<T>,
+                    or: fn() -> T,
+                ) -> syn::Result<(Lookahead1<'i>, Self::Output<T>)>
+                where
+                    P: Peek {
+                let (lookahead, ( $($v,)*)) = self;
+                let (lookahead, (value,)) = lookahead.chain_with_or(input, peek, with, or)?;
                 Ok((lookahead, ($($v,)* value,)))
             }
 
