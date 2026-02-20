@@ -1,20 +1,24 @@
 //! Ast for fucntion templates.
 
+use ::core::ops::ControlFlow;
+
 use ::katalog_lib_proc_macro_common::lookahead_chain::LookaheadChain;
 use ::proc_macro2::{Span, TokenStream};
 use ::quote::ToTokens;
 use ::syn::{
-    Arm, Block, Expr, ExprBlock, ExprCall, ExprReference, ExprTuple, Generics, Ident, Pat, PatPath,
-    Path, QSelf, ReturnType, Token, Type, TypePath, TypeTuple, Variant, Visibility, WhereClause,
-    braced,
+    Arm, Block, Expr, ExprBlock, ExprCall, ExprReference, ExprTuple, Fields, FieldsNamed,
+    FieldsUnnamed, Generics, Ident, Pat, PatPath, PatRest, PatStruct, PatTupleStruct, Path, QSelf,
+    ReturnType, Token, Type, TypePath, TypeTuple, Variant, Visibility, WhereClause, braced,
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
     punctuated::{Pair, Punctuated},
+    spanned::Spanned,
     token,
 };
 
 use crate::{
     dispatch_parameter::DispatchParameters,
+    kw,
     path_prefix::{PathPrefix, Qualified},
     util::ident_to_expr,
 };
@@ -181,11 +185,82 @@ impl DispatchFn {
         }
     }
 
+    /// Pattern and body of a unit arm.
+    fn unit_arm(&self, fields: &Fields, path: Path, variant_ident: &Ident) -> (Pat, Box<Expr>) {
+        (
+            match fields {
+                Fields::Named(FieldsNamed { brace_token, .. }) => Pat::from(PatStruct {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path,
+                    brace_token: *brace_token,
+                    fields: Punctuated::new(),
+                    rest: Some(PatRest {
+                        attrs: Vec::new(),
+                        dot2_token: Token![..](brace_token.span.open()),
+                    }),
+                }),
+                Fields::Unnamed(FieldsUnnamed { paren_token, .. }) => Pat::from(PatTupleStruct {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path,
+                    paren_token: *paren_token,
+                    elems: [Pat::from(PatRest {
+                        attrs: Vec::new(),
+                        dot2_token: Token![..](paren_token.span.open()),
+                    })]
+                    .into_iter()
+                    .collect(),
+                }),
+                Fields::Unit => Pat::from(PatPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path,
+                }),
+            },
+            self.block
+                .as_ref()
+                .map(|block| {
+                    Box::new(Expr::from(ExprBlock {
+                        attrs: Vec::new(),
+                        label: None,
+                        block: block.clone(),
+                    }))
+                })
+                .unwrap_or_else(|| {
+                    Box::new(Expr::from(self.call(
+                        {
+                            let expr = Expr::from(ExprTuple {
+                                attrs: Vec::new(),
+                                paren_token: token::Paren(variant_ident.span()),
+                                elems: Punctuated::new(),
+                            });
+
+                            if let Some((reference, ..)) = &self.parameters.receiver.reference {
+                                Expr::from(ExprReference {
+                                    attrs: Vec::new(),
+                                    and_token: *reference,
+                                    mutability: self.parameters.receiver.mutability,
+                                    expr: Box::new(expr),
+                                })
+                            } else {
+                                expr
+                            }
+                        },
+                        &Type::from(TypeTuple {
+                            paren_token: token::Paren(variant_ident.span()),
+                            elems: Punctuated::new(),
+                        }),
+                    )))
+                }),
+        )
+    }
+
     /// Generate a match arm for given variant.
-    fn match_arm(&self, ident: &Ident, variant: &Variant, this_ident: Ident) -> Arm {
+    fn match_arm(&self, ident: &Ident, variant: &Variant, this_ident: Ident) -> ::syn::Result<Arm> {
         let Variant {
             ident: variant_ident,
-            fields,
+            fields: variant_fields,
             ..
         } = variant;
 
@@ -199,61 +274,52 @@ impl DispatchFn {
                 segments
             },
         };
-        let (pat, body) = match fields {
-            ::syn::Fields::Named(fields_named) => todo!(),
-            ::syn::Fields::Unnamed(fields_unnamed) => todo!(),
-            ::syn::Fields::Unit => (
-                Pat::from(PatPath {
-                    attrs: Vec::new(),
-                    qself: None,
-                    path,
-                }),
-                self.block
-                    .as_ref()
-                    .map(|block| {
-                        Box::new(Expr::from(ExprBlock {
-                            attrs: Vec::new(),
-                            label: None,
-                            block: block.clone(),
-                        }))
-                    })
-                    .unwrap_or_else(|| {
-                        Box::new(Expr::from(self.call(
-                            {
-                                let expr = Expr::from(ExprTuple {
-                                    attrs: Vec::new(),
-                                    paren_token: token::Paren(variant_ident.span()),
-                                    elems: Punctuated::new(),
-                                });
+        let (pat, body) = match variant_fields {
+            Fields::Named(FieldsNamed { named: fields, .. })
+            | Fields::Unnamed(FieldsUnnamed {
+                unnamed: fields, ..
+            }) => {
+                let mut dispatch_field = None;
+                for field in fields {
+                    if let ControlFlow::Break(result) = field.attrs.iter().try_for_each(|attr| {
+                        if attr.path().is_ident("dispatch") {
+                            ControlFlow::Break(attr.parse_args::<kw::ignore>())
+                        } else {
+                            ControlFlow::Continue(())
+                        }
+                    }) {
+                        _ = result?;
+                        continue;
+                    };
 
-                                if let Some((reference, ..)) = &self.parameters.receiver.reference {
-                                    Expr::from(ExprReference {
-                                        attrs: Vec::new(),
-                                        and_token: *reference,
-                                        mutability: self.parameters.receiver.mutability,
-                                        expr: Box::new(expr),
-                                    })
-                                } else {
-                                    expr
-                                }
-                            },
-                            &Type::from(TypeTuple {
-                                paren_token: token::Paren(variant_ident.span()),
-                                elems: Punctuated::new(),
-                            }),
-                        )))
-                    }),
-            ),
+                    if dispatch_field.is_some() {
+                        return Err(::syn::Error::new_spanned(
+                            field,
+                            "expected only one field without the #[dispatch(ignore)] attribute",
+                        ));
+                    }
+
+                    dispatch_field = Some(field);
+                }
+
+                // If no dispatch fields without ignore attribute are found, treat as unit variant.
+                if let Some(dispatch_field) = dispatch_field {
+                    todo!()
+                } else {
+                    self.unit_arm(variant_fields, path, variant_ident)
+                }
+            }
+            Fields::Unit => self.unit_arm(variant_fields, path, variant_ident),
         };
 
-        Arm {
+        Ok(Arm {
             attrs: Vec::new(),
             pat,
             guard: None,
             fat_arrow_token: Token![=>](Span::call_site()),
             body,
             comma: Some(Token![,](Span::call_site())),
-        }
+        })
     }
 }
 

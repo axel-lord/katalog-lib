@@ -17,7 +17,14 @@ pub mod dispatch_fn;
 pub mod dispatch_parameter;
 pub mod path_prefix;
 
-pub(crate) mod util;
+mod util;
+mod kw {
+    //! Custom keywords.
+
+    use ::syn::custom_keyword;
+
+    custom_keyword!(ignore);
+}
 
 /// Macro to implement dispatch.
 pub fn derive_dispatch(item: TokenStream) -> TokenStream {
