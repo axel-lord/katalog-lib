@@ -297,15 +297,9 @@ impl ToTokens for DispatchFn {
 
 impl Parse for DispatchFn {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let for_token;
-        let mut generics;
-
-        // Trick to create a new lookahead if for was matched thus not adding it
-        // to the error message if matched whilst still having it be in the set if not matched.
-
         let (lookahead, (for_token_generics,)) =
             input.lookahead1().chain_with(input, Token![for], |input| {
-                let for_token = input.parse::<Token![for]>()?;
+                let for_token = input.parse::<Option<Token![for]>>()?;
 
                 if !input.peek(Token![<]) {
                     return Err(input.error("expected '<' after for"));
@@ -316,7 +310,7 @@ impl Parse for DispatchFn {
                 Ok((for_token, generics))
             })?;
 
-        let (for_token, generics) = for_token_generics.unwrap_or_default();
+        let (for_token, mut generics) = for_token_generics.unwrap_or_default();
 
         let as_token;
         let ident;
