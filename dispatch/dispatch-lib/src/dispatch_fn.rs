@@ -3,12 +3,13 @@
 use ::core::ops::ControlFlow;
 
 use ::katalog_lib_proc_macro_common::lookahead_chain::LookaheadChain;
-use ::proc_macro2::{Span, TokenStream};
+use ::proc_macro2::{Span, TokenStream, extra::DelimSpan};
 use ::quote::ToTokens;
 use ::syn::{
-    Arm, Block, Expr, ExprBlock, ExprCall, ExprReference, ExprTuple, Fields, FieldsNamed,
-    FieldsUnnamed, Generics, Ident, Pat, PatPath, PatRest, PatStruct, PatTupleStruct, Path, QSelf,
-    ReturnType, Token, Type, TypePath, TypeTuple, Variant, Visibility, WhereClause, braced,
+    Arm, Block, Expr, ExprBlock, ExprCall, ExprReference, ExprTuple, Field, FieldPat, Fields,
+    FieldsNamed, FieldsUnnamed, Generics, Ident, Member, Pat, PatPath, PatRest, PatStruct,
+    PatTupleStruct, PatWild, Path, QSelf, ReturnType, Token, Type, TypePath, TypeTuple, Variant,
+    Visibility, WhereClause, braced,
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
     punctuated::{Pair, Punctuated},
@@ -185,75 +186,163 @@ impl DispatchFn {
         }
     }
 
+    /// Pattern and body of match arm for a regular field.
+    #[expect(clippy::too_many_arguments)]
+    fn field_arm(
+        &self,
+        field: &Field,
+        path: Path,
+        variant_ident: &Ident,
+        this_ident: Ident,
+        idx: usize,
+        delim_span: DelimSpan,
+        is_last: bool,
+    ) -> (Pat, Box<Expr>) {
+        let is_single = is_last && idx == 0;
+        let pat = if let Some(ident) = &field.ident {
+            Pat::from(PatStruct {
+                attrs: Vec::new(),
+                qself: None,
+                path,
+                brace_token: token::Brace { span: delim_span },
+                fields: {
+                    let mut punctuated = Punctuated::new();
+
+                    punctuated.push(FieldPat {
+                        attrs: Vec::new(),
+                        member: Member::Named(ident.clone()),
+                        colon_token: Some(Token![:](this_ident.span())),
+                        pat: Box::new(Pat::from(PatPath {
+                            attrs: Vec::new(),
+                            qself: None,
+                            path: Path::from(ident.clone()),
+                        })),
+                    });
+
+                    if !is_single {
+                        punctuated.push_punct(Token![,](delim_span.close()));
+                    }
+
+                    punctuated
+                },
+                rest: if is_single {
+                    None
+                } else {
+                    Some(PatRest {
+                        attrs: Vec::new(),
+                        dot2_token: Token![..](delim_span.close()),
+                    })
+                },
+            })
+        } else {
+            Pat::from(PatTupleStruct {
+                attrs: Vec::new(),
+                qself: None,
+                path,
+                paren_token: token::Paren { span: delim_span },
+                elems: {
+                    let mut punctuated = Punctuated::new();
+                    let span = delim_span.open();
+                    for _ in 0..idx {
+                        punctuated.push(Pat::from(PatWild {
+                            attrs: Vec::new(),
+                            underscore_token: Token![_](span),
+                        }));
+                        punctuated.push_punct(Token![,](span));
+                    }
+
+                    punctuated.push(Pat::from(PatPath {
+                        attrs: Vec::new(),
+                        qself: None,
+                        path: Path::from(this_ident.clone()),
+                    }));
+
+                    if !is_last {
+                        let span = delim_span.close();
+                        punctuated.push_punct(Token![,](span));
+                        punctuated.push(Pat::from(PatRest {
+                            attrs: Vec::new(),
+                            dot2_token: Token![..](span),
+                        }));
+                    }
+
+                    punctuated
+                },
+            })
+        };
+        let expr = Box::new(Expr::from(self.call(ident_to_expr(this_ident), &field.ty)));
+        (pat, expr)
+    }
+
     /// Pattern and body of a unit arm.
     fn unit_arm(&self, fields: &Fields, path: Path, variant_ident: &Ident) -> (Pat, Box<Expr>) {
-        (
-            match fields {
-                Fields::Named(FieldsNamed { brace_token, .. }) => Pat::from(PatStruct {
+        let pat = match fields {
+            Fields::Named(FieldsNamed { brace_token, .. }) => Pat::from(PatStruct {
+                attrs: Vec::new(),
+                qself: None,
+                path,
+                brace_token: *brace_token,
+                fields: Punctuated::new(),
+                rest: Some(PatRest {
                     attrs: Vec::new(),
-                    qself: None,
-                    path,
-                    brace_token: *brace_token,
-                    fields: Punctuated::new(),
-                    rest: Some(PatRest {
-                        attrs: Vec::new(),
-                        dot2_token: Token![..](brace_token.span.open()),
-                    }),
+                    dot2_token: Token![..](brace_token.span.open()),
                 }),
-                Fields::Unnamed(FieldsUnnamed { paren_token, .. }) => Pat::from(PatTupleStruct {
+            }),
+            Fields::Unnamed(FieldsUnnamed { paren_token, .. }) => Pat::from(PatTupleStruct {
+                attrs: Vec::new(),
+                qself: None,
+                path,
+                paren_token: *paren_token,
+                elems: [Pat::from(PatRest {
                     attrs: Vec::new(),
-                    qself: None,
-                    path,
-                    paren_token: *paren_token,
-                    elems: [Pat::from(PatRest {
-                        attrs: Vec::new(),
-                        dot2_token: Token![..](paren_token.span.open()),
-                    })]
-                    .into_iter()
-                    .collect(),
-                }),
-                Fields::Unit => Pat::from(PatPath {
+                    dot2_token: Token![..](paren_token.span.open()),
+                })]
+                .into_iter()
+                .collect(),
+            }),
+            Fields::Unit => Pat::from(PatPath {
+                attrs: Vec::new(),
+                qself: None,
+                path,
+            }),
+        };
+        let expr = self
+            .block
+            .as_ref()
+            .map(|block| {
+                Box::new(Expr::from(ExprBlock {
                     attrs: Vec::new(),
-                    qself: None,
-                    path,
-                }),
-            },
-            self.block
-                .as_ref()
-                .map(|block| {
-                    Box::new(Expr::from(ExprBlock {
-                        attrs: Vec::new(),
-                        label: None,
-                        block: block.clone(),
-                    }))
-                })
-                .unwrap_or_else(|| {
-                    Box::new(Expr::from(self.call(
-                        {
-                            let expr = Expr::from(ExprTuple {
-                                attrs: Vec::new(),
-                                paren_token: token::Paren(variant_ident.span()),
-                                elems: Punctuated::new(),
-                            });
-
-                            if let Some((reference, ..)) = &self.parameters.receiver.reference {
-                                Expr::from(ExprReference {
-                                    attrs: Vec::new(),
-                                    and_token: *reference,
-                                    mutability: self.parameters.receiver.mutability,
-                                    expr: Box::new(expr),
-                                })
-                            } else {
-                                expr
-                            }
-                        },
-                        &Type::from(TypeTuple {
+                    label: None,
+                    block: block.clone(),
+                }))
+            })
+            .unwrap_or_else(|| {
+                Box::new(Expr::from(self.call(
+                    {
+                        let expr = Expr::from(ExprTuple {
+                            attrs: Vec::new(),
                             paren_token: token::Paren(variant_ident.span()),
                             elems: Punctuated::new(),
-                        }),
-                    )))
-                }),
-        )
+                        });
+
+                        if let Some((reference, ..)) = &self.parameters.receiver.reference {
+                            Expr::from(ExprReference {
+                                attrs: Vec::new(),
+                                and_token: *reference,
+                                mutability: self.parameters.receiver.mutability,
+                                expr: Box::new(expr),
+                            })
+                        } else {
+                            expr
+                        }
+                    },
+                    &Type::from(TypeTuple {
+                        paren_token: token::Paren(variant_ident.span()),
+                        elems: Punctuated::new(),
+                    }),
+                )))
+            });
+        (pat, expr)
     }
 
     /// Generate a match arm for given variant.
@@ -275,12 +364,17 @@ impl DispatchFn {
             },
         };
         let (pat, body) = match variant_fields {
-            Fields::Named(FieldsNamed { named: fields, .. })
+            Fields::Named(FieldsNamed {
+                named: fields,
+                brace_token: token::Brace { span: delim_span },
+            })
             | Fields::Unnamed(FieldsUnnamed {
-                unnamed: fields, ..
+                unnamed: fields,
+                paren_token: token::Paren { span: delim_span },
             }) => {
                 let mut dispatch_field = None;
-                for field in fields {
+                let mut idx = 0;
+                for (i, field) in fields.iter().enumerate() {
                     if let ControlFlow::Break(result) = field.attrs.iter().try_for_each(|attr| {
                         if attr.path().is_ident("dispatch") {
                             ControlFlow::Break(attr.parse_args::<kw::ignore>())
@@ -300,11 +394,20 @@ impl DispatchFn {
                     }
 
                     dispatch_field = Some(field);
+                    idx = i;
                 }
 
                 // If no dispatch fields without ignore attribute are found, treat as unit variant.
                 if let Some(dispatch_field) = dispatch_field {
-                    todo!()
+                    self.field_arm(
+                        dispatch_field,
+                        path,
+                        variant_ident,
+                        this_ident,
+                        idx,
+                        *delim_span,
+                        idx + 1 == fields.len(),
+                    )
                 } else {
                     self.unit_arm(variant_fields, path, variant_ident)
                 }
