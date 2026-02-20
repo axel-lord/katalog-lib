@@ -1,3 +1,5 @@
+//! Create utilities.
+
 use ::syn::{Expr, Ident, PatPath, Path};
 
 /// Convert an ident to an expression.

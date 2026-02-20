@@ -4,7 +4,7 @@ use ::proc_macro2::{Span, TokenStream};
 use ::quote::ToTokens;
 use ::syn::{
     Arm, Block, Expr, ExprBlock, ExprCall, ExprReference, ExprTuple, Generics, Ident, Pat, PatPath,
-    Path, QSelf, ReturnType, Token, Type, TypePath, TypeTuple, Variant, braced,
+    Path, QSelf, ReturnType, Token, Type, TypePath, TypeTuple, Variant, Visibility, braced,
     ext::IdentExt as _,
     parse::{Parse, ParseStream},
     punctuated::{Pair, Punctuated},
@@ -28,6 +28,13 @@ pub struct DispatchFn {
     pub as_token: Option<Token![as]>,
     /// Name of function.
     pub ident: Ident,
+
+    /// Visibility.
+    pub vis: Visibility,
+    /// Is the function const.
+    pub constness: Option<Token![const]>,
+    /// Is the function async.
+    pub asyncness: Option<Token![async]>,
 
     /// 'fn' token.
     pub fn_token: Token![fn],
@@ -255,6 +262,9 @@ impl ToTokens for DispatchFn {
             generics,
             as_token,
             ident,
+            vis,
+            constness,
+            asyncness,
             fn_token,
             prefix,
             path,
@@ -270,6 +280,9 @@ impl ToTokens for DispatchFn {
             as_token.to_tokens(tokens);
             ident.to_tokens(tokens);
         }
+        vis.to_tokens(tokens);
+        constness.to_tokens(tokens);
+        asyncness.to_tokens(tokens);
         fn_token.to_tokens(tokens);
         prefix.to_tokens(tokens);
         path.to_tokens(tokens);
@@ -315,6 +328,33 @@ impl Parse for DispatchFn {
         } else {
             as_token = None;
             ident = None;
+            lookahead
+        };
+
+        let vis;
+        let lookahead = if lookahead.peek(Token![pub]) {
+            vis = input.parse()?;
+            input.lookahead1()
+        } else {
+            vis = Visibility::Inherited;
+            lookahead
+        };
+
+        let constness;
+        let lookahead = if lookahead.peek(Token![const]) {
+            constness = input.parse()?;
+            input.lookahead1()
+        } else {
+            constness = None;
+            lookahead
+        };
+
+        let asyncness;
+        let lookahead = if lookahead.peek(Token![async]) {
+            asyncness = input.parse()?;
+            input.lookahead1()
+        } else {
+            asyncness = None;
             lookahead
         };
 
@@ -423,6 +463,9 @@ impl Parse for DispatchFn {
             generics,
             as_token,
             ident,
+            vis,
+            constness,
+            asyncness,
             fn_token,
             prefix,
             path,
