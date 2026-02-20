@@ -6,14 +6,13 @@ use ::katalog_lib_proc_macro_common::lookahead_chain::LookaheadChain;
 use ::proc_macro2::{Span, TokenStream, extra::DelimSpan};
 use ::quote::ToTokens;
 use ::syn::{
-    Arm, Block, Expr, ExprBlock, ExprCall, ExprReference, ExprTuple, Field, FieldPat, Fields,
-    FieldsNamed, FieldsUnnamed, Generics, Ident, Member, Pat, PatPath, PatRest, PatStruct,
-    PatTupleStruct, PatWild, Path, QSelf, ReturnType, Token, Type, TypePath, TypeTuple, Variant,
-    Visibility, WhereClause, braced,
+    Arm, Block, Expr, ExprBlock, ExprCall, ExprMatch, ExprReference, ExprTuple, Field, FieldPat,
+    Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItemFn, ItemEnum, Member, Pat,
+    PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path, QSelf, ReturnType, Signature, Stmt,
+    Token, Type, TypeTuple, Variant, Visibility, WhereClause, braced,
     ext::IdentExt as _,
-    parse::{Parse, ParseStream},
+    parse::{Lookahead1, Parse, ParseStream},
     punctuated::{Pair, Punctuated},
-    spanned::Spanned,
     token,
 };
 
@@ -64,6 +63,21 @@ pub struct DispatchFn {
 }
 
 impl DispatchFn {
+    /// Check if a dispatch function may be at the lookahead position.
+    ///
+    /// May not register all possible tokens with lookahead if any is peeked.
+    ///
+    /// # Tokens
+    /// `for, as, pub, const, async, fn`
+    pub fn peek_prefix(lookahead: &Lookahead1) -> bool {
+        lookahead.peek(Token![for])
+            || lookahead.peek(Token![as])
+            || lookahead.peek(Token![pub])
+            || lookahead.peek(Token![const])
+            || lookahead.peek(Token![async])
+            || lookahead.peek(Token![fn])
+    }
+
     /// Get a call path.
     fn call_path(&self, ty: &Type) -> PatPath {
         const fn empty_path() -> Path {
@@ -71,15 +85,6 @@ impl DispatchFn {
                 leading_colon: None,
                 segments: Punctuated::new(),
             }
-        }
-        fn ident_to_boxed_type(ident: impl Into<Ident>) -> Box<Type> {
-            Box::new(
-                TypePath {
-                    qself: None,
-                    path: Path::from(ident),
-                }
-                .into(),
-            )
         }
         let (qself, mut path) = self
             .prefix
@@ -187,12 +192,10 @@ impl DispatchFn {
     }
 
     /// Pattern and body of match arm for a regular field.
-    #[expect(clippy::too_many_arguments)]
     fn field_arm(
         &self,
         field: &Field,
         path: Path,
-        variant_ident: &Ident,
         this_ident: Ident,
         idx: usize,
         delim_span: DelimSpan,
@@ -402,7 +405,6 @@ impl DispatchFn {
                     self.field_arm(
                         dispatch_field,
                         path,
-                        variant_ident,
                         this_ident,
                         idx,
                         *delim_span,
@@ -422,6 +424,54 @@ impl DispatchFn {
             fat_arrow_token: Token![=>](Span::call_site()),
             body,
             comma: Some(Token![,](Span::call_site())),
+        })
+    }
+
+    /// Create a function implementation for given enum.
+    ///
+    /// # Errors
+    /// If enum variants cannot be converted to arms.
+    pub fn to_item(&self, item_enum: &ItemEnum) -> ::syn::Result<ImplItemFn> {
+        let sig = Signature {
+            constness: self.constness,
+            asyncness: self.asyncness,
+            unsafety: None,
+            abi: None,
+            fn_token: self.fn_token,
+            ident: self.ident.clone(),
+            generics: self.generics.clone(),
+            paren_token: self.parameters.paren_token,
+            inputs: self.parameters.to_inputs(),
+            variadic: None,
+            output: self.output.clone(),
+        };
+        let vis = self.vis.clone();
+        let ident = &item_enum.ident;
+        let this_ident = self.parameters.this_ident(Span::call_site());
+        let expr = Expr::from(ExprMatch {
+            attrs: Vec::new(),
+            match_token: Token![match](Span::call_site()),
+            expr: Box::new(ident_to_expr(Ident::from(
+                self.parameters.receiver.self_token,
+            ))),
+            brace_token: token::Brace::default(),
+            arms: item_enum
+                .variants
+                .iter()
+                .map(|variant| self.match_arm(ident, variant, this_ident.clone()))
+                .collect::<Result<Vec<_>, _>>()?,
+        });
+        let block = Block {
+            brace_token: token::Brace::default(),
+            stmts: Vec::from_iter([Stmt::Expr(expr, None)]),
+        };
+
+        Ok(ImplItemFn {
+            attrs: Vec::new(),
+            vis,
+            defaultness: None,
+            sig,
+            block,
         })
     }
 }

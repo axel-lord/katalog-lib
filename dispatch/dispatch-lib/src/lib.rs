@@ -5,7 +5,7 @@ use ::katalog_lib_proc_macro_common::err_collector::ErrCollector;
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    ItemEnum, Token, braced,
+    ImplItem, ItemEnum, ItemImpl, Path, Token, Type, TypePath, braced,
     parse::{Parse, Parser},
     punctuated::Punctuated,
     token,
@@ -98,7 +98,7 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
     let item_enum = ItemEnum::parse.parse2(item)?;
 
     let mut errors = ErrCollector::<Vec<::syn::Error>>::default();
-    let mut dispatch_functions = Vec::new();
+    let mut impl_blocks = Vec::<ItemImpl>::new();
     for attr in &item_enum.attrs {
         if !attr.path().is_ident("dispatch") {
             continue;
@@ -115,12 +115,39 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
 
         for attr in attrs {
             match attr {
-                DispatchAttr::Impl(impl_attr) => {
-                    dispatch_functions.extend(impl_attr.functions);
+                DispatchAttr::Impl(ImplAttr {
+                    impl_token,
+                    brace_token,
+                    functions,
+                }) => {
+                    let impl_block = ItemImpl {
+                        attrs: Vec::new(),
+                        defaultness: None,
+                        unsafety: None,
+                        impl_token,
+                        generics: item_enum.generics.clone(),
+                        trait_: None,
+                        self_ty: Box::new(Type::from(TypePath {
+                            qself: None,
+                            path: Path::from(item_enum.ident.clone()),
+                        })),
+                        brace_token,
+                        items: functions
+                            .into_iter()
+                            .map(|function| function.to_item(&item_enum).map(ImplItem::from))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    };
+                    impl_blocks.push(impl_block);
                 }
             }
         }
     }
 
-    errors.with(TokenStream::default()).into_result()
+    let mut tokens = TokenStream::default();
+
+    for impl_block in impl_blocks {
+        impl_block.to_tokens(&mut tokens);
+    }
+
+    errors.with(tokens).into_result()
 }

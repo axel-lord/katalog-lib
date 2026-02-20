@@ -7,11 +7,12 @@ use ::quote::ToTokens;
 use ::syn::{
     Attribute, FnArg, Ident, Pat, PatIdent, PatType, Receiver, Token, Type, parenthesized,
     parse::{Parse, ParseStream},
-    punctuated::Punctuated,
+    punctuated::{Pair, Punctuated},
     token,
 };
 
 /// A single non receiver dispatch function template parameter.
+#[derive(Clone)]
 pub struct IdentType {
     /// Parameter attributes.
     pub attrs: Vec<Attribute>,
@@ -92,6 +93,26 @@ pub struct DispatchParameters {
 }
 
 impl DispatchParameters {
+    /// Get inputs for function signature.
+    pub fn to_inputs(&self) -> Punctuated<FnArg, Token![,]> {
+        let mut inputs = Punctuated::new();
+        inputs.push_value(self.receiver.clone().into());
+
+        if let Some(infix_comma) = self.infix_comma {
+            fn pair_map(pair: Pair<&IdentType, &Token![,]>) -> Pair<FnArg, Token![,]> {
+                let (value, punct) = pair.into_tuple();
+                let punct = punct.copied();
+                let value = <FnArg as From<IdentType>>::from(value.clone());
+                Pair::new(value, punct)
+            }
+
+            inputs.push_punct(infix_comma);
+            inputs.extend(self.parameters.pairs().map(pair_map));
+        }
+
+        inputs
+    }
+
     /// Get an ident for self not without any overlap with parameters.
     pub fn this_ident(&self, span: Span) -> Ident {
         let set = self
