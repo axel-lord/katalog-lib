@@ -4,59 +4,59 @@ use ::core::ops::{Deref, DerefMut};
 
 /// Collect errors into collection C of errors E or valid values into T.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct ErrCollector<C, T = ()> {
+pub struct ErrCollector<ErrCollection, ValueTy = ()> {
     /// Valid value storage.
-    pub value: T,
+    pub value: ValueTy,
     /// Error collector.
-    pub err: C,
+    pub err: ErrCollection,
 }
 
-impl<C, T> ErrCollector<C, T> {
+impl<ErrCollection, ValueTy> ErrCollector<ErrCollection, ValueTy> {
     /// Push an error to error collection.
-    pub fn push_err<E>(&mut self, err: E) -> &mut Self
+    pub fn push_err<Err>(&mut self, err: Err) -> &mut Self
     where
-        C: Extend<E>,
+        ErrCollection: Extend<Err>,
     {
         self.err.extend([err]);
         self
     }
 
     /// Extend error collection with values of err.
-    pub fn extend_err<I>(&mut self, err: I) -> &mut Self
+    pub fn extend_err<IntoIter>(&mut self, err: IntoIter) -> &mut Self
     where
-        I: IntoIterator,
-        C: Extend<I::Item>,
+        IntoIter: IntoIterator,
+        ErrCollection: Extend<IntoIter::Item>,
     {
         self.err.extend(err);
         self
     }
 
     /// Split into value and error collection without a value.
-    pub fn split(self) -> (T, ErrCollector<C, ()>) {
+    pub fn split(self) -> (ValueTy, ErrCollector<ErrCollection, ()>) {
         let Self { value, err } = self;
         (value, ErrCollector { value: (), err })
     }
 
     /// Replace current value with `value`.
-    pub fn with<V>(self, value: V) -> ErrCollector<C, V> {
+    pub fn with<ValueTyB>(self, value: ValueTyB) -> ErrCollector<ErrCollection, ValueTyB> {
         let Self { value: _, err } = self;
         ErrCollector { value, err }
     }
 
     /// Convert a result with a single error into an error collection.
-    pub fn from_result<E>(result: Result<T, E>) -> Self
+    pub fn from_result<Err>(result: Result<ValueTy, Err>) -> Self
     where
-        C: FromIterator<E> + Default,
-        T: Default,
+        ErrCollection: FromIterator<Err> + Default,
+        ValueTy: Default,
     {
         match result {
             Ok(value) => Self {
                 value,
-                err: C::default(),
+                err: ErrCollection::default(),
             },
             Err(e) => Self {
-                value: T::default(),
-                err: C::from_iter([e]),
+                value: ValueTy::default(),
+                err: ErrCollection::from_iter([e]),
             },
         }
     }
@@ -65,13 +65,13 @@ impl<C, T> ErrCollector<C, T> {
     ///
     /// # Errors
     /// If err contains any errors.
-    pub fn into_result<E>(self) -> Result<T, E>
+    pub fn into_result<Err>(self) -> Result<ValueTy, Err>
     where
-        C: IntoIterator,
-        E: From<C::Item> + Extend<E>,
+        ErrCollection: IntoIterator,
+        Err: From<ErrCollection::Item> + Extend<Err>,
     {
         let Self { value, err } = self;
-        let mut err_iter = err.into_iter().map(E::from);
+        let mut err_iter = err.into_iter().map(Err::from);
 
         if let Some(mut err) = err_iter.next() {
             err.extend(err_iter);
@@ -80,9 +80,46 @@ impl<C, T> ErrCollector<C, T> {
             Ok(value)
         }
     }
+
+    /// Collect iterator of results into a collection and self.
+    pub fn collect<Collection>(
+        &mut self,
+        into_iter: impl IntoIterator<Item = Result<Collection::Item, ErrCollection::Item>>,
+    ) -> Collection
+    where
+        Collection: IntoIterator + FromIterator<Collection::Item>,
+        ErrCollection: IntoIterator + Extend<ErrCollection::Item>,
+    {
+        into_iter
+            .into_iter()
+            .filter_map(|result| match result {
+                Ok(value) => Some(value),
+                Err(err) => {
+                    self.push_err(err);
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Run scope function converting result into an option and adding the
+    /// error to collection if any.
+    pub fn scope<Scope, T, E>(&mut self, scope: Scope) -> Option<T>
+    where
+        Scope: FnOnce() -> Result<T, E>,
+        ErrCollection: Extend<E>,
+    {
+        match scope() {
+            Ok(value) => Some(value),
+            Err(err) => {
+                self.push_err(err);
+                None
+            }
+        }
+    }
 }
 
-impl<C, T> Deref for ErrCollector<C, T> {
+impl<E, T> Deref for ErrCollector<E, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -90,25 +127,25 @@ impl<C, T> Deref for ErrCollector<C, T> {
     }
 }
 
-impl<C, T> DerefMut for ErrCollector<C, T> {
+impl<E, T> DerefMut for ErrCollector<E, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.value
     }
 }
 
-impl<C, T> AsRef<T> for ErrCollector<C, T> {
+impl<E, T> AsRef<T> for ErrCollector<E, T> {
     fn as_ref(&self) -> &T {
         self
     }
 }
 
-impl<C, T> AsMut<T> for ErrCollector<C, T> {
+impl<E, T> AsMut<T> for ErrCollector<E, T> {
     fn as_mut(&mut self) -> &mut T {
         self
     }
 }
 
-impl<C, T> IntoIterator for ErrCollector<C, T>
+impl<E, T> IntoIterator for ErrCollector<E, T>
 where
     T: IntoIterator,
 {
@@ -121,7 +158,7 @@ where
     }
 }
 
-impl<'i, C, T> IntoIterator for &'i ErrCollector<C, T>
+impl<'i, E, T> IntoIterator for &'i ErrCollector<E, T>
 where
     &'i T: IntoIterator,
 {
@@ -133,7 +170,7 @@ where
     }
 }
 
-impl<'i, C, T> IntoIterator for &'i mut ErrCollector<C, T>
+impl<'i, E, T> IntoIterator for &'i mut ErrCollector<E, T>
 where
     &'i mut T: IntoIterator,
 {
@@ -146,15 +183,16 @@ where
     }
 }
 
-impl<C, T, E, V> FromIterator<Result<V, E>> for ErrCollector<C, T>
+impl<ErrCollection, ValueTy, Err, ItemTy> FromIterator<Result<ItemTy, Err>>
+    for ErrCollector<ErrCollection, ValueTy>
 where
-    T: FromIterator<V>,
-    C: Default + Extend<E>,
+    ValueTy: FromIterator<ItemTy>,
+    ErrCollection: Default + Extend<Err>,
 {
-    fn from_iter<I: IntoIterator<Item = Result<V, E>>>(iter: I) -> Self {
-        let mut err = C::default();
+    fn from_iter<I: IntoIterator<Item = Result<ItemTy, Err>>>(iter: I) -> Self {
+        let mut err = ErrCollection::default();
 
-        let value = T::from_iter(iter.into_iter().filter_map(|result| match result {
+        let value = ValueTy::from_iter(iter.into_iter().filter_map(|result| match result {
             Ok(v) => Some(v),
             Err(e) => {
                 err.extend([e]);

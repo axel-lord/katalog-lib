@@ -5,7 +5,7 @@ use ::katalog_lib_proc_macro_common::err_collector::ErrCollector;
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    ImplItem, ItemEnum, ItemImpl, Path, Token, Type, TypePath, braced,
+    ItemEnum, ItemImpl, Path, Token, Type, TypePath, braced,
     parse::{Parse, Parser},
     punctuated::Punctuated,
     token,
@@ -104,14 +104,11 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
             continue;
         }
 
-        let attrs =
-            match attr.parse_args_with(Punctuated::<DispatchAttr, Token![,]>::parse_terminated) {
-                Ok(attrs) => attrs,
-                Err(err) => {
-                    errors.push_err(err);
-                    continue;
-                }
-            };
+        let Some(attrs) = errors.scope(|| {
+            attr.parse_args_with(Punctuated::<DispatchAttr, Token![,]>::parse_terminated)
+        }) else {
+            continue;
+        };
 
         for attr in attrs {
             match attr {
@@ -132,10 +129,11 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
                             path: Path::from(item_enum.ident.clone()),
                         })),
                         brace_token,
-                        items: functions
-                            .into_iter()
-                            .map(|function| function.to_item(&item_enum).map(ImplItem::from))
-                            .collect::<Result<Vec<_>, _>>()?,
+                        items: errors.collect(
+                            functions
+                                .into_iter()
+                                .map(|function| function.to_item(&item_enum)),
+                        ),
                     };
                     impl_blocks.push(impl_block);
                 }

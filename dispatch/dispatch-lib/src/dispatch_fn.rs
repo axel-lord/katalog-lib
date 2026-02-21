@@ -7,9 +7,9 @@ use ::proc_macro2::{Span, TokenStream, extra::DelimSpan};
 use ::quote::ToTokens;
 use ::syn::{
     Arm, Block, Expr, ExprBlock, ExprCall, ExprMatch, ExprReference, ExprTuple, Field, FieldPat,
-    Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItemFn, ItemEnum, Member, Pat,
-    PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path, QSelf, ReturnType, Signature, Stmt,
-    Token, Type, TypeTuple, Variant, Visibility, WhereClause, braced,
+    Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItem, ImplItemFn, ItemEnum, Member,
+    Pat, PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path, QSelf, ReturnType, Signature,
+    Stmt, Token, Type, TypeTuple, Variant, Visibility, WhereClause, braced,
     ext::IdentExt as _,
     parse::{Lookahead1, Parse, ParseStream},
     punctuated::{Pair, Punctuated},
@@ -431,7 +431,7 @@ impl DispatchFn {
     ///
     /// # Errors
     /// If enum variants cannot be converted to arms.
-    pub fn to_item(&self, item_enum: &ItemEnum) -> ::syn::Result<ImplItemFn> {
+    pub fn to_item(&self, item_enum: &ItemEnum) -> ::syn::Result<ImplItem> {
         let sig = Signature {
             constness: self.constness,
             asyncness: self.asyncness,
@@ -466,13 +466,13 @@ impl DispatchFn {
             stmts: Vec::from_iter([Stmt::Expr(expr, None)]),
         };
 
-        Ok(ImplItemFn {
+        Ok(ImplItem::from(ImplItemFn {
             attrs: Vec::new(),
             vis,
             defaultness: None,
             sig,
             block,
-        })
+        }))
     }
 }
 
