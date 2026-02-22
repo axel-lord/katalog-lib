@@ -53,4 +53,3 @@ impl<T, E> Unpack for Result<(T,), E> {
         }
     }
 }
-

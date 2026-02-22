@@ -18,7 +18,7 @@ use ::syn::{
 };
 
 use crate::{
-    attr::FieldAttr,
+    attr::{FieldAttr, IgnoreUse},
     dispatch_parameter::DispatchParameters,
     path_prefix::{PathPrefix, Qualified},
     util::ident_to_expr,
@@ -379,33 +379,81 @@ impl DispatchFn {
                 let mut dispatch_field = Vec::new();
                 let mut idx = 0;
                 for (i, field) in fields.iter().enumerate() {
-                    // Use only first attribute.
-                    let flow = field.attrs.iter().try_for_each(|attr| {
-                        if attr.path().is_ident("dispatch") {
-                            ControlFlow::Break(attr.parse_args::<FieldAttr>())
-                        } else {
-                            ControlFlow::Continue(())
-                        }
-                    });
+                    let flow =
+                        field
+                            .attrs
+                            .iter()
+                            .filter(|attr| attr.path().is_ident("dispatch"))
+                            .try_fold(None, |acc, attr| {
+                                match attr.parse_args_with(
+                                    Punctuated::<FieldAttr, Token![,]>::parse_terminated,
+                                ) {
+                                    Err(err) => ControlFlow::Break(Err(err)),
+                                    Ok(field_attrs) => {
+                                        if let Some(acc) = field_attrs.into_iter().try_fold(
+                                            None,
+                                            |acc, field_attr| match field_attr {
+                                                FieldAttr::IgnoreUse(ignore_use) => {
+                                                    ControlFlow::Continue(Some(ignore_use))
+                                                }
+                                                FieldAttr::Named(meta_list) => {
+                                                    if let Some(ident) = meta_list.path.get_ident()
+                                                        && ident == &self.ident
+                                                        && let Some(ignore_use) =
+                                                            meta_list
+                                                                .parse_args_with(
+                                                                    Punctuated::<
+                                                                        IgnoreUse,
+                                                                        Token![,],
+                                                                    >::parse_terminated,
+                                                                )
+                                                                .map(|named_attrs| {
+                                                                    named_attrs.into_iter().last()
+                                                                })
+                                                                .transpose()
+                                                    {
+                                                        ControlFlow::Break(ignore_use)
+                                                    } else {
+                                                        ControlFlow::Continue(acc)
+                                                    }
+                                                }
+                                            },
+                                        )? {
+                                            ControlFlow::Continue(Some(acc))
+                                        } else {
+                                            ControlFlow::Continue(acc)
+                                        }
+                                    }
+                                }
+                            });
 
-                    match flow {
-                        ControlFlow::Break(result) => match result? {
-                            // On ignore do nothing.
-                            FieldAttr::Ignore(_) => (),
-                            // On only ensure this field is dispatch field.
-                            FieldAttr::Use(_) => {
-                                dispatch_field.clear();
-                                dispatch_field.push(field);
-                                idx = i;
-                                break;
-                            }
-                        },
+                    fn untangle<T, E>(
+                        control_flow: ControlFlow<Result<T, E>, Option<T>>,
+                    ) -> Result<Option<T>, E> {
+                        match control_flow {
+                            ControlFlow::Continue(value) => Ok(value),
+                            ControlFlow::Break(result) => result.map(Some),
+                        }
+                    }
+
+                    match untangle(flow)? {
+                        // On ignore do nothing.
+                        Some(IgnoreUse::Ignore(..)) => {}
+
+                        // On use ensure this field is dispatch field.
+                        Some(IgnoreUse::Use(..)) => {
+                            dispatch_field.clear();
+                            dispatch_field.push(field);
+                            idx = i;
+                            break;
+                        }
+
                         // If no attribute matched assume this field is dispatch field.
-                        ControlFlow::Continue(()) => {
+                        None => {
                             dispatch_field.push(field);
                             idx = i;
                         }
-                    };
+                    }
                 }
 
                 // If no dispatch fields without ignore attribute are found, treat as unit variant.

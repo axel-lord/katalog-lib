@@ -4,7 +4,12 @@ use crate::{dispatch_fn::DispatchFn, kw};
 
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
-use ::syn::{Token, braced, parse::Parse, token};
+use ::syn::{
+    Ident, MetaList, Token, braced,
+    ext::IdentExt,
+    parse::{Parse, ParseStream},
+    token,
+};
 
 /// Dispatch impl attribute.
 pub struct ImplAttr {
@@ -33,7 +38,7 @@ impl ToTokens for ImplAttr {
 }
 
 impl Parse for ImplAttr {
-    fn parse(input: ::syn::parse::ParseStream) -> ::syn::Result<Self> {
+    fn parse(input: ParseStream) -> ::syn::Result<Self> {
         let impl_token = input.parse()?;
         let content;
         let brace_token = braced!(content in input);
@@ -58,7 +63,7 @@ pub enum DispatchAttr {
 }
 
 impl Parse for DispatchAttr {
-    fn parse(input: ::syn::parse::ParseStream) -> ::syn::Result<Self> {
+    fn parse(input: ParseStream) -> ::syn::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(Token![impl]) {
             Ok(DispatchAttr::Impl(input.parse()?))
@@ -69,22 +74,61 @@ impl Parse for DispatchAttr {
 }
 
 /// Enum variant field dispatch attribute content.
-pub enum FieldAttr {
+pub enum IgnoreUse {
     /// Ignore this field.
     Ignore(kw::ignore),
     /// Use only this field.
     Use(Token![use]),
 }
 
-impl Parse for FieldAttr {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+impl ToTokens for IgnoreUse {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            IgnoreUse::Ignore(ignore) => ignore.to_tokens(tokens),
+            IgnoreUse::Use(r#use) => r#use.to_tokens(tokens),
+        }
+    }
+}
+
+impl Parse for IgnoreUse {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(kw::ignore) {
-            input.parse().map(FieldAttr::Ignore)
+            input.parse().map(IgnoreUse::Ignore)
         } else if lookahead.peek(Token![use]) {
-            input.parse().map(FieldAttr::Use)
+            input.parse().map(IgnoreUse::Use)
         } else {
             Err(lookahead.error())
+        }
+    }
+}
+
+/// Enum variant field dispatch attribute.
+pub enum FieldAttr {
+    /// Ignore or use the field.
+    IgnoreUse(IgnoreUse),
+    /// Named attribute with lazy parsing.
+    Named(MetaList),
+}
+
+impl Parse for FieldAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(kw::ignore) || lookahead.peek(Token![use]) {
+            input.parse().map(Self::IgnoreUse)
+        } else if lookahead.peek(Token![::]) || lookahead.peek(Ident::peek_any) {
+            input.parse().map(Self::Named)
+        } else {
+            Err(lookahead.error())
+        }
+    }
+}
+
+impl ToTokens for FieldAttr {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            FieldAttr::IgnoreUse(ignore_use) => ignore_use.to_tokens(tokens),
+            FieldAttr::Named(meta_list) => meta_list.to_tokens(tokens),
         }
     }
 }

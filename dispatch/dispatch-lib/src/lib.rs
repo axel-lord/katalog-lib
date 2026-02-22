@@ -5,7 +5,7 @@ use ::katalog_lib_proc_macro_common::err_collector::ErrCollector;
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    ItemEnum, ItemImpl, Path, Token, Type, TypePath, 
+    ItemEnum, ItemImpl, Path, Token, Type, TypePath,
     parse::{Parse, Parser},
     punctuated::Punctuated,
 };
