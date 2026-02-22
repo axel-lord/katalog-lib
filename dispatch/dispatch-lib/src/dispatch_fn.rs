@@ -13,12 +13,13 @@ use ::syn::{
     ext::IdentExt as _,
     parse::{Lookahead1, Parse, ParseStream},
     punctuated::{Pair, Punctuated},
+    spanned::Spanned,
     token,
 };
 
 use crate::{
+    attr::FieldAttr,
     dispatch_parameter::DispatchParameters,
-    kw,
     path_prefix::{PathPrefix, Qualified},
     util::ident_to_expr,
 };
@@ -375,43 +376,57 @@ impl DispatchFn {
                 unnamed: fields,
                 paren_token: token::Paren { span: delim_span },
             }) => {
-                let mut dispatch_field = None;
+                let mut dispatch_field = Vec::new();
                 let mut idx = 0;
                 for (i, field) in fields.iter().enumerate() {
-                    if let ControlFlow::Break(result) = field.attrs.iter().try_for_each(|attr| {
+                    // Use only first attribute.
+                    let flow = field.attrs.iter().try_for_each(|attr| {
                         if attr.path().is_ident("dispatch") {
-                            ControlFlow::Break(attr.parse_args::<kw::ignore>())
+                            ControlFlow::Break(attr.parse_args::<FieldAttr>())
                         } else {
                             ControlFlow::Continue(())
                         }
-                    }) {
-                        _ = result?;
-                        continue;
+                    });
+
+                    match flow {
+                        ControlFlow::Break(result) => match result? {
+                            // On ignore do nothing.
+                            FieldAttr::Ignore(_) => (),
+                            // On only ensure this field is dispatch field.
+                            FieldAttr::Use(_) => {
+                                dispatch_field.clear();
+                                dispatch_field.push(field);
+                                idx = i;
+                                break;
+                            }
+                        },
+                        // If no attribute matched assume this field is dispatch field.
+                        ControlFlow::Continue(()) => {
+                            dispatch_field.push(field);
+                            idx = i;
+                        }
                     };
-
-                    if dispatch_field.is_some() {
-                        return Err(::syn::Error::new_spanned(
-                            field,
-                            "expected only one field without the #[dispatch(ignore)] attribute",
-                        ));
-                    }
-
-                    dispatch_field = Some(field);
-                    idx = i;
                 }
 
                 // If no dispatch fields without ignore attribute are found, treat as unit variant.
-                if let Some(dispatch_field) = dispatch_field {
-                    self.field_arm(
+                // If multiple found throw an error.
+                match dispatch_field.as_slice() {
+                    [] => self.unit_arm(variant_fields, path, variant_ident),
+                    [dispatch_field] => self.field_arm(
                         dispatch_field,
                         path,
                         this_ident,
                         idx,
                         *delim_span,
                         idx + 1 == fields.len(),
-                    )
-                } else {
-                    self.unit_arm(variant_fields, path, variant_ident)
+                    ),
+                    [..] => {
+                        return Err(::syn::Error::new(
+                            delim_span.span(),
+                            "expected only one field without the #[dispatch(ignore)] attribute \
+                            or only one field with the #[dispatch(use)] attribute",
+                        ));
+                    }
                 }
             }
             Fields::Unit => self.unit_arm(variant_fields, path, variant_ident),
