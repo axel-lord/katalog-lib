@@ -41,6 +41,25 @@ where
         self.chain_with(input, peek, T::parse)
     }
 
+    /// Parse T if P is peeked and condition returns true.
+    ///
+    /// If T is parsed a new lookahead is created. Otherwise the same
+    /// one is returned.
+    ///
+    /// # Errors
+    /// If peek returns true but T cannot be parsed.
+    fn chain_and<T>(
+        self,
+        input: ParseStream<'i>,
+        peek: impl Peek,
+        condition: fn(ParseStream<'i>) -> bool,
+    ) -> ::syn::Result<(Lookahead1<'i>, Self::Output<Option<T>>)>
+    where
+        T: Parse,
+    {
+        self.chain_with_and(input, peek, T::parse, condition)
+    }
+
     /// Parse T if P is peeked.
     ///
     /// If T is parsed a new lookahead is created. Otherwise the same
@@ -73,6 +92,26 @@ where
         input: ParseStream<'i>,
         peek: P,
         with: fn(ParseStream<'i>) -> ::syn::Result<T>,
+    ) -> ::syn::Result<(Lookahead1<'i>, Self::Output<Option<T>>)>
+    where
+        P: Peek,
+    {
+        self.chain_with_and(input, peek, with, |_| true)
+    }
+
+    /// Parse T using with if P is peeked amd the condition returns true.
+    ///
+    /// If T is parsed a new lookahead is created. Otherwise the same
+    /// one is returned.
+    ///
+    /// # Errors
+    /// If peek returns true but T cannot be parsed.
+    fn chain_with_and<T, P>(
+        self,
+        input: ParseStream<'i>,
+        peek: P,
+        with: fn(ParseStream<'i>) -> ::syn::Result<T>,
+        condition: fn(ParseStream<'i>) -> bool,
     ) -> ::syn::Result<(Lookahead1<'i>, Self::Output<Option<T>>)>
     where
         P: Peek;
@@ -166,16 +205,17 @@ impl<'i> LookaheadChain<'i> for Lookahead1<'i> {
         Ok((map(value)?,))
     }
 
-    fn chain_with<T, P>(
+    fn chain_with_and<T, P>(
         self,
         input: ParseStream<'i>,
         peek: P,
         with: fn(ParseStream<'i>) -> syn::Result<T>,
+        condition: fn(ParseStream<'i>) -> bool,
     ) -> syn::Result<(Lookahead1<'i>, Self::Output<Option<T>>)>
     where
         P: Peek,
     {
-        if self.peek(peek) {
+        if self.peek(peek) && condition(input) {
             let value = input.call(with)?;
 
             Ok((input.lookahead1(), (Some(value),)))
@@ -203,16 +243,17 @@ macro_rules! lookahead_chain_tuple_impl {
                 Ok(($($v,)* map(value)?,))
             }
 
-            fn chain_with<T, P>(
+            fn chain_with_and<T, P>(
                 self,
                 input: ParseStream<'i>,
                 peek: P,
                 with: fn(ParseStream<'i>) -> syn::Result<T>,
+                condition: fn(ParseStream<'i>) -> bool,
             ) -> syn::Result<(Lookahead1<'i>, Self::Output<Option<T>>)>
             where
                 P: Peek {
                 let (lookahead, ( $($v,)*)) = self;
-                let (lookahead, (value,)) = lookahead.chain_with(input, peek, with)?;
+                let (lookahead, (value,)) = lookahead.chain_with_and(input, peek, with, condition)?;
                 Ok((lookahead, ($($v,)* value,)))
             }
         }
