@@ -1,15 +1,13 @@
 //! Ast for fucntion templates.
 
-use ::core::ops::ControlFlow;
-
 use ::katalog_lib_proc_macro_common::lookahead_chain::LookaheadChain;
 use ::proc_macro2::{Span, TokenStream, extra::DelimSpan};
 use ::quote::ToTokens;
 use ::syn::{
-    Arm, Block, Expr, ExprBlock, ExprCall, ExprMatch, ExprReference, ExprTuple, Field, FieldPat,
-    Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItem, ImplItemFn, ItemEnum, Member,
-    Pat, PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path, QSelf, ReturnType, Signature,
-    Stmt, Token, Type, TypeTuple, Variant, Visibility, WhereClause, braced,
+    Arm, Attribute, Block, Expr, ExprBlock, ExprCall, ExprMatch, ExprReference, ExprTuple, Field,
+    FieldPat, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItem, ImplItemFn, ItemEnum,
+    Member, Pat, PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path, QSelf, ReturnType,
+    Signature, Stmt, Token, Type, TypeTuple, Variant, Visibility, WhereClause, braced,
     ext::IdentExt as _,
     parse::{Lookahead1, Parse, ParseStream},
     punctuated::{Pair, Punctuated},
@@ -349,6 +347,37 @@ impl DispatchFn {
         (pat, expr)
     }
 
+    /// Determine if a field should be used or ignored based on attributes.
+    fn read_field_attrs(&self, attrs: &[Attribute]) -> ::syn::Result<Option<IgnoreUse>> {
+        let mut acc = None;
+        let attrs = attrs
+            .iter()
+            .filter(|attr| attr.path().is_ident("dispatch"))
+            .map(|attr| attr.parse_args_with(Punctuated::<FieldAttr, Token![,]>::parse_terminated));
+
+        for attrs in attrs {
+            for attr in attrs? {
+                match attr {
+                    // If regular ignore_use, replace acc.
+                    FieldAttr::IgnoreUse(ignore_use) => acc = Some(ignore_use),
+                    // If named short-circuit on last nested attribute.
+                    FieldAttr::Named(meta_list) if meta_list.path.is_ident(&self.ident) => {
+                        if let ignore_use @ Some(..) = meta_list
+                            .parse_args_with(Punctuated::<IgnoreUse, Token![,]>::parse_terminated)?
+                            .into_iter()
+                            .last()
+                        {
+                            return Ok(ignore_use);
+                        }
+                    }
+                    // If unknown named continue on.
+                    FieldAttr::Named(..) => {}
+                }
+            }
+        }
+        Ok(acc)
+    }
+
     /// Generate a match arm for given variant.
     fn match_arm(&self, ident: &Ident, variant: &Variant, this_ident: Ident) -> ::syn::Result<Arm> {
         let Variant {
@@ -379,64 +408,7 @@ impl DispatchFn {
                 let mut dispatch_field = Vec::new();
                 let mut idx = 0;
                 for (i, field) in fields.iter().enumerate() {
-                    let flow =
-                        field
-                            .attrs
-                            .iter()
-                            .filter(|attr| attr.path().is_ident("dispatch"))
-                            .try_fold(None, |acc, attr| {
-                                match attr.parse_args_with(
-                                    Punctuated::<FieldAttr, Token![,]>::parse_terminated,
-                                ) {
-                                    Err(err) => ControlFlow::Break(Err(err)),
-                                    Ok(field_attrs) => {
-                                        if let Some(acc) = field_attrs.into_iter().try_fold(
-                                            None,
-                                            |acc, field_attr| match field_attr {
-                                                FieldAttr::IgnoreUse(ignore_use) => {
-                                                    ControlFlow::Continue(Some(ignore_use))
-                                                }
-                                                FieldAttr::Named(meta_list) => {
-                                                    if let Some(ident) = meta_list.path.get_ident()
-                                                        && ident == &self.ident
-                                                        && let Some(ignore_use) =
-                                                            meta_list
-                                                                .parse_args_with(
-                                                                    Punctuated::<
-                                                                        IgnoreUse,
-                                                                        Token![,],
-                                                                    >::parse_terminated,
-                                                                )
-                                                                .map(|named_attrs| {
-                                                                    named_attrs.into_iter().last()
-                                                                })
-                                                                .transpose()
-                                                    {
-                                                        ControlFlow::Break(ignore_use)
-                                                    } else {
-                                                        ControlFlow::Continue(acc)
-                                                    }
-                                                }
-                                            },
-                                        )? {
-                                            ControlFlow::Continue(Some(acc))
-                                        } else {
-                                            ControlFlow::Continue(acc)
-                                        }
-                                    }
-                                }
-                            });
-
-                    fn untangle<T, E>(
-                        control_flow: ControlFlow<Result<T, E>, Option<T>>,
-                    ) -> Result<Option<T>, E> {
-                        match control_flow {
-                            ControlFlow::Continue(value) => Ok(value),
-                            ControlFlow::Break(result) => result.map(Some),
-                        }
-                    }
-
-                    match untangle(flow)? {
+                    match self.read_field_attrs(&field.attrs)? {
                         // On ignore do nothing.
                         Some(IgnoreUse::Ignore(..)) => {}
 
