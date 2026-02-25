@@ -4,10 +4,11 @@ use ::katalog_lib_proc_macro_common::lookahead_chain::LookaheadChain;
 use ::proc_macro2::{Span, TokenStream, extra::DelimSpan};
 use ::quote::ToTokens;
 use ::syn::{
-    Arm, Attribute, Block, Expr, ExprBlock, ExprCall, ExprMatch, ExprReference, ExprTuple, Field,
-    FieldPat, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItem, ImplItemFn, ItemEnum,
-    Member, Pat, PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path, QSelf, ReturnType,
-    Signature, Stmt, Token, Type, TypeTuple, Variant, Visibility, WhereClause, braced,
+    Arm, Attribute, Block, Expr, ExprAwait, ExprBlock, ExprCall, ExprMatch, ExprReference,
+    ExprTuple, Field, FieldPat, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItem,
+    ImplItemFn, ItemEnum, Member, Pat, PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path,
+    QSelf, ReturnType, Signature, Stmt, Token, Type, TypeTuple, Variant, Visibility, WhereClause,
+    braced,
     ext::IdentExt as _,
     parse::{Lookahead1, Parse, ParseStream},
     punctuated::{Pair, Punctuated},
@@ -160,14 +161,14 @@ impl DispatchFn {
     }
 
     /// Generate a cell for receiver with type ty.
-    fn call(&self, expr: Expr, ty: &Type) -> ExprCall {
+    fn call(&self, expr: Expr, ty: &Type) -> Box<Expr> {
         let DispatchParameters {
             paren_token,
             infix_comma,
             parameters,
             ..
         } = &self.parameters;
-        ExprCall {
+        let call = Box::new(Expr::from(ExprCall {
             attrs: Vec::new(),
             func: Box::new(self.call_path(ty).into()),
             paren_token: *paren_token,
@@ -187,6 +188,17 @@ impl DispatchFn {
 
                 args
             },
+        }));
+
+        if let Some(asyncness) = &self.asyncness {
+            Box::new(Expr::from(ExprAwait {
+                attrs: Vec::new(),
+                base: call,
+                dot_token: Token![.](asyncness.span),
+                await_token: Token![await](asyncness.span),
+            }))
+        } else {
+            call
         }
     }
 
@@ -272,7 +284,7 @@ impl DispatchFn {
                 },
             })
         };
-        let expr = Box::new(Expr::from(self.call(ident_to_expr(this_ident), &field.ty)));
+        let expr = self.call(ident_to_expr(this_ident), &field.ty);
         (pat, expr)
     }
 
@@ -319,7 +331,7 @@ impl DispatchFn {
                 }))
             })
             .unwrap_or_else(|| {
-                Box::new(Expr::from(self.call(
+                self.call(
                     {
                         let expr = Expr::from(ExprTuple {
                             attrs: Vec::new(),
@@ -342,7 +354,7 @@ impl DispatchFn {
                         paren_token: token::Paren(variant_ident.span()),
                         elems: Punctuated::new(),
                     }),
-                )))
+                )
             });
         (pat, expr)
     }
