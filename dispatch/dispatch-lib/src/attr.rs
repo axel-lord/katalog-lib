@@ -5,7 +5,7 @@ use crate::{dispatch_fn::DispatchFn, kw};
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    Ident, MetaList, Token, braced,
+    Expr, Ident, MetaList, Token, braced,
     ext::IdentExt,
     parse::{Parse, ParseStream},
     token,
@@ -74,29 +74,29 @@ impl Parse for DispatchAttr {
 }
 
 /// Enum variant field dispatch attribute content.
-pub enum IgnoreUse {
+pub enum FieldAttrInner {
     /// Ignore this field.
     Ignore(kw::ignore),
     /// Use only this field.
     Use(Token![use]),
 }
 
-impl ToTokens for IgnoreUse {
+impl ToTokens for FieldAttrInner {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            IgnoreUse::Ignore(ignore) => ignore.to_tokens(tokens),
-            IgnoreUse::Use(r#use) => r#use.to_tokens(tokens),
+            FieldAttrInner::Ignore(ignore) => ignore.to_tokens(tokens),
+            FieldAttrInner::Use(r#use) => r#use.to_tokens(tokens),
         }
     }
 }
 
-impl Parse for IgnoreUse {
+impl Parse for FieldAttrInner {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(kw::ignore) {
-            input.parse().map(IgnoreUse::Ignore)
+            input.parse().map(FieldAttrInner::Ignore)
         } else if lookahead.peek(Token![use]) {
-            input.parse().map(IgnoreUse::Use)
+            input.parse().map(FieldAttrInner::Use)
         } else {
             Err(lookahead.error())
         }
@@ -106,7 +106,7 @@ impl Parse for IgnoreUse {
 /// Enum variant field dispatch attribute.
 pub enum FieldAttr {
     /// Ignore or use the field.
-    IgnoreUse(IgnoreUse),
+    Inner(FieldAttrInner),
     /// Named attribute with lazy parsing.
     Named(MetaList),
 }
@@ -115,7 +115,7 @@ impl Parse for FieldAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(kw::ignore) || lookahead.peek(Token![use]) {
-            input.parse().map(Self::IgnoreUse)
+            input.parse().map(Self::Inner)
         } else if lookahead.peek(Token![::]) || lookahead.peek(Ident::peek_any) {
             input.parse().map(Self::Named)
         } else {
@@ -127,8 +127,46 @@ impl Parse for FieldAttr {
 impl ToTokens for FieldAttr {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            FieldAttr::IgnoreUse(ignore_use) => ignore_use.to_tokens(tokens),
+            FieldAttr::Inner(ignore_use) => ignore_use.to_tokens(tokens),
             FieldAttr::Named(meta_list) => meta_list.to_tokens(tokens),
         }
+    }
+}
+
+/// Closure like with only one parameter.
+pub struct MonoClosure {
+    /// left '|' token.
+    pub left_pipe: Token![|],
+    /// Parameter ident.
+    pub param: Ident,
+    /// right '|' token.
+    pub right_pipe: Token![|],
+    /// Closure expression.
+    pub expr: Expr,
+}
+
+impl Parse for MonoClosure {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            left_pipe: input.parse()?,
+            param: input.parse()?,
+            right_pipe: input.parse()?,
+            expr: input.parse()?,
+        })
+    }
+}
+
+impl ToTokens for MonoClosure {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            left_pipe,
+            param,
+            right_pipe,
+            expr,
+        } = self;
+        left_pipe.to_tokens(tokens);
+        param.to_tokens(tokens);
+        right_pipe.to_tokens(tokens);
+        expr.to_tokens(tokens);
     }
 }

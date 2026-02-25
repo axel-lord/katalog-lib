@@ -16,7 +16,7 @@ use ::syn::{
 };
 
 use crate::{
-    attr::{FieldAttr, IgnoreUse},
+    attr::{FieldAttr, FieldAttrInner},
     dispatch_parameter::DispatchParameters,
     path_prefix::{PathPrefix, Qualified},
     util::ident_to_expr,
@@ -217,7 +217,7 @@ impl DispatchFn {
                         pat: Box::new(Pat::from(PatPath {
                             attrs: Vec::new(),
                             qself: None,
-                            path: Path::from(ident.clone()),
+                            path: Path::from(this_ident.clone()),
                         })),
                     });
 
@@ -348,7 +348,7 @@ impl DispatchFn {
     }
 
     /// Determine if a field should be used or ignored based on attributes.
-    fn read_field_attrs(&self, attrs: &[Attribute]) -> ::syn::Result<Option<IgnoreUse>> {
+    fn read_field_attrs(&self, attrs: &[Attribute]) -> ::syn::Result<Option<FieldAttrInner>> {
         let mut acc = None;
         let attrs = attrs
             .iter()
@@ -359,11 +359,13 @@ impl DispatchFn {
             for attr in attrs? {
                 match attr {
                     // If regular ignore_use, replace acc.
-                    FieldAttr::IgnoreUse(ignore_use) => acc = Some(ignore_use),
+                    FieldAttr::Inner(ignore_use) => acc = Some(ignore_use),
                     // If named short-circuit on last nested attribute.
                     FieldAttr::Named(meta_list) if meta_list.path.is_ident(&self.ident) => {
                         if let ignore_use @ Some(..) = meta_list
-                            .parse_args_with(Punctuated::<IgnoreUse, Token![,]>::parse_terminated)?
+                            .parse_args_with(
+                                Punctuated::<FieldAttrInner, Token![,]>::parse_terminated,
+                            )?
                             .into_iter()
                             .last()
                         {
@@ -397,6 +399,7 @@ impl DispatchFn {
             },
         };
         let (pat, body) = match variant_fields {
+            Fields::Unit => self.unit_arm(variant_fields, path, variant_ident),
             Fields::Named(FieldsNamed {
                 named: fields,
                 brace_token: token::Brace { span: delim_span },
@@ -410,10 +413,10 @@ impl DispatchFn {
                 for (i, field) in fields.iter().enumerate() {
                     match self.read_field_attrs(&field.attrs)? {
                         // On ignore do nothing.
-                        Some(IgnoreUse::Ignore(..)) => {}
+                        Some(FieldAttrInner::Ignore(..)) => {}
 
                         // On use ensure this field is dispatch field.
-                        Some(IgnoreUse::Use(..)) => {
+                        Some(FieldAttrInner::Use(..)) => {
                             dispatch_field.clear();
                             dispatch_field.push(field);
                             idx = i;
@@ -449,7 +452,6 @@ impl DispatchFn {
                     }
                 }
             }
-            Fields::Unit => self.unit_arm(variant_fields, path, variant_ident),
         };
 
         Ok(Arm {
