@@ -5,7 +5,7 @@ use crate::{dispatch_fn::DispatchFn, kw};
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    Expr, Ident, MetaList, Token, braced,
+    Expr, Generics, Ident, MetaList, Token, braced,
     ext::IdentExt,
     parse::{Parse, ParseStream},
     token,
@@ -15,6 +15,10 @@ use ::syn::{
 pub struct ImplAttr {
     /// Impl token.
     pub impl_token: Token![impl],
+    /// Optional generic parameters for impl.
+    pub generics: Option<Generics>,
+    /// Optional 'Self' token.
+    pub self_token: Option<Token![Self]>,
     /// braces '{}'.
     pub brace_token: token::Brace,
     /// Dispatch functions.
@@ -25,10 +29,17 @@ impl ToTokens for ImplAttr {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let Self {
             impl_token,
+            generics,
+            self_token,
             brace_token,
             functions,
         } = self;
         impl_token.to_tokens(tokens);
+        generics.to_tokens(tokens);
+        self_token.to_tokens(tokens);
+        if let Some(generics) = generics {
+            generics.where_clause.to_tokens(tokens);
+        }
         brace_token.surround(tokens, |tokens| {
             for function in functions {
                 function.to_tokens(tokens);
@@ -40,6 +51,25 @@ impl ToTokens for ImplAttr {
 impl Parse for ImplAttr {
     fn parse(input: ParseStream) -> ::syn::Result<Self> {
         let impl_token = input.parse()?;
+
+        let lookahead = input.lookahead1();
+        let generics = if lookahead.peek(token::Brace) || lookahead.peek(Token![Self]) {
+            None
+        } else if lookahead.peek(Token![<]) {
+            Some(input.parse()?)
+        } else {
+            return Err(lookahead.error());
+        };
+
+        let lookahead = input.lookahead1();
+        let self_token = if lookahead.peek(token::Brace) {
+            None
+        } else if lookahead.peek(Token![Self]) {
+            Some(input.parse()?)
+        } else {
+            return Err(lookahead.error());
+        };
+
         let content;
         let brace_token = braced!(content in input);
         let mut functions = Vec::new();
@@ -50,6 +80,8 @@ impl Parse for ImplAttr {
 
         Ok(Self {
             impl_token,
+            generics,
+            self_token,
             brace_token,
             functions,
         })

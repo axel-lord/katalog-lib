@@ -52,6 +52,8 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
             match attr {
                 DispatchAttr::Impl(ImplAttr {
                     impl_token,
+                    generics,
+                    self_token: _,
                     brace_token,
                     functions,
                 }) => {
@@ -60,7 +62,7 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
                         defaultness: None,
                         unsafety: None,
                         impl_token,
-                        generics: item_enum.generics.clone(),
+                        generics: generics.unwrap_or_else(|| item_enum.generics.clone()),
                         trait_: None,
                         self_ty: Box::new(Type::from(TypePath {
                             qself: None,
