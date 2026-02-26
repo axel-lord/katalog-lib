@@ -1,5 +1,7 @@
 //! Extensions to macro delimiters.
 
+use ::core::ops::{Deref, DerefMut};
+
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
@@ -44,6 +46,20 @@ impl<T> MacroDelimited<T> {
         let content = Last::<T>::parse_value_with(&content, parser)?;
 
         Ok(Self { delim, content })
+    }
+}
+
+impl<T> Deref for MacroDelimited<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.content
+    }
+}
+
+impl<T> DerefMut for MacroDelimited<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.content
     }
 }
 
