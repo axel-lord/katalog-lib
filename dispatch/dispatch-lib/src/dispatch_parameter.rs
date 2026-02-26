@@ -81,6 +81,7 @@ impl From<IdentType> for FnArg {
     }
 }
 /// Parameters of dispatch function template.
+#[derive(Clone)]
 pub struct DispatchParameters {
     /// Enclosing perentheses.
     pub paren_token: token::Paren,

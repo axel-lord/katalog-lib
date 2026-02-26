@@ -24,6 +24,7 @@ use crate::{
 };
 
 /// Dispatch function template.
+#[derive(Clone)]
 pub struct DispatchFn {
     /// 'for' token signaling generics.
     pub for_token: Option<Token![for]>,
@@ -373,9 +374,11 @@ impl DispatchFn {
                     // If regular ignore_use, replace acc.
                     FieldAttr::Inner(ignore_use) => acc = Some(ignore_use),
                     // If named short-circuit on last nested attribute.
-                    FieldAttr::Named(meta_list) if meta_list.path.is_ident(&self.ident) => {
-                        if let ignore_use @ Some(..) = meta_list
-                            .parse_args_with(
+                    FieldAttr::Named(named) if named.name == self.ident => {
+                        if let ignore_use @ Some(..) = named
+                            .content
+                            .content
+                            .try_into_parsed_with(
                                 Punctuated::<FieldAttrInner, Token![,]>::parse_terminated,
                             )?
                             .into_iter()

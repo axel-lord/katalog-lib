@@ -2,16 +2,48 @@
 
 use crate::{dispatch_fn::DispatchFn, kw};
 
+use ::katalog_lib_proc_macro_common::{delimited::MacroDelimited, lazy::Lazy};
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    Expr, Generics, Ident, MetaList, Token, braced,
+    Expr, Generics, Ident, Token, braced,
     ext::IdentExt,
     parse::{Parse, ParseStream},
+    punctuated::Punctuated,
     token,
 };
 
+/// A named MetaList like attribute.
+#[derive(Clone)]
+pub struct NamedAttr<T> {
+    /// Attribute name.
+    pub name: Ident,
+    /// Content of attribute.
+    pub content: MacroDelimited<Lazy<T>>,
+}
+
+impl<T> Parse for NamedAttr<T> {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            name: input.parse()?,
+            content: input.parse()?,
+        })
+    }
+}
+
+impl<T> ToTokens for NamedAttr<T>
+where
+    T: ToTokens,
+{
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self { name, content } = self;
+        name.to_tokens(tokens);
+        content.to_tokens(tokens);
+    }
+}
+
 /// Dispatch impl attribute.
+#[derive(Clone)]
 pub struct ImplAttr {
     /// Impl token.
     pub impl_token: Token![impl],
@@ -89,6 +121,7 @@ impl Parse for ImplAttr {
 }
 
 /// Dispatch attributes.
+#[derive(Clone)]
 pub enum DispatchAttr {
     /// Impl block attribute.
     Impl(ImplAttr),
@@ -106,6 +139,7 @@ impl Parse for DispatchAttr {
 }
 
 /// Enum variant field dispatch attribute content.
+#[derive(Clone)]
 pub enum FieldAttrInner {
     /// Ignore this field.
     Ignore(kw::ignore),
@@ -136,11 +170,12 @@ impl Parse for FieldAttrInner {
 }
 
 /// Enum variant field dispatch attribute.
+#[derive(Clone)]
 pub enum FieldAttr {
     /// Ignore or use the field.
     Inner(FieldAttrInner),
     /// Named attribute with lazy parsing.
-    Named(MetaList),
+    Named(NamedAttr<Punctuated<FieldAttrInner, Token![,]>>),
 }
 
 impl Parse for FieldAttr {
@@ -148,7 +183,7 @@ impl Parse for FieldAttr {
         let lookahead = input.lookahead1();
         if lookahead.peek(kw::ignore) || lookahead.peek(Token![use]) {
             input.parse().map(Self::Inner)
-        } else if lookahead.peek(Token![::]) || lookahead.peek(Ident::peek_any) {
+        } else if lookahead.peek(Ident::peek_any) {
             input.parse().map(Self::Named)
         } else {
             Err(lookahead.error())
@@ -166,6 +201,7 @@ impl ToTokens for FieldAttr {
 }
 
 /// Closure like with only one parameter.
+#[derive(Clone)]
 pub struct MonoClosure {
     /// left '|' token.
     pub left_pipe: Token![|],

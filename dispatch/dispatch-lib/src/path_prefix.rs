@@ -6,20 +6,22 @@ use ::syn::{
     Path, Token, Type,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
+    token,
 };
 
 /// A Qualified type '<Ty as ::path>'
+#[derive(Clone)]
 pub struct Qualified<T> {
     /// '<' token.
-    pub lt_token: Token![<],
+    pub lt_token: token::Lt,
     /// Qualified value.
     pub value: T,
     /// 'as' token.
-    pub as_token: Token![as],
+    pub as_token: token::As,
     /// Path to qualify as.
     pub path: Path,
     /// '>' token.
-    pub gt_token: Token![>],
+    pub gt_token: token::Gt,
 }
 
 impl<T: ToTokens> ToTokens for Qualified<T> {
@@ -62,6 +64,7 @@ where
 }
 
 /// Prefix to path of function.
+#[derive(Clone)]
 pub enum PathPrefix {
     /// Self type replaced by variant type.
     SelfTy {
