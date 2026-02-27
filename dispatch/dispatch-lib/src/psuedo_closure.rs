@@ -46,7 +46,7 @@ impl PsuedoClosure {
 }
 
 /// Parse tail params.
-fn parse_tail(input: ParseStream) -> ::syn::Result<Params> {
+fn parse_tail_inner(input: ParseStream) -> ::syn::Result<Params> {
     let mut tail = Params::new();
     loop {
         let mut lookahead = input.lookahead1();
@@ -73,14 +73,42 @@ fn parse_tail(input: ParseStream) -> ::syn::Result<Params> {
     Ok(tail)
 }
 
+/// Parse remainder after '..'.
+fn parse_tail(input: ParseStream) -> ::syn::Result<(Option<Token![,]>, Params)> {
+    let lookahead = input.lookahead1();
+    if lookahead.peek(Token![|]) {
+        Ok(Default::default())
+    } else if lookahead.peek(Token![,]) {
+        let rest_comma = Some(input.parse()?);
+        let params = input.call(parse_tail_inner)?;
+
+        Ok((rest_comma, params))
+    } else {
+        Err(lookahead.error())
+    }
+}
+
+/// Parse remainder including '..'.
+fn parse_rest(
+    input: ParseStream,
+) -> ::syn::Result<(Option<Token![..]>, Option<Token![,]>, Params)> {
+    let lookahead = input.lookahead1();
+    if lookahead.peek(Token![|]) {
+        Ok(Default::default())
+    } else if lookahead.peek(Token![..]) {
+        let rest_token = Some(input.parse()?);
+        let (rest_comma, tail) = input.call(parse_tail)?;
+        Ok((rest_token, rest_comma, tail))
+    } else {
+        Err(lookahead.error())
+    }
+}
+
 impl Parse for PsuedoClosure {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let left_pipe = input.parse()?;
 
         let mut head_params = Punctuated::new();
-        let mut tail_params = Punctuated::new();
-        let mut rest_token = None;
-        let mut rest_comma = None;
 
         loop {
             let lookahead = input.lookahead1();
@@ -101,22 +129,7 @@ impl Parse for PsuedoClosure {
             }
         }
 
-        let lookahead = input.lookahead1();
-        if lookahead.peek(Token![..]) {
-            rest_token = Some(input.parse()?);
-
-            let lookahead = input.lookahead1();
-            if lookahead.peek(Token![,]) {
-                rest_comma = Some(input.parse()?);
-                tail_params = input.call(parse_tail)?;
-            } else if lookahead.peek(Token![|]) {
-            } else {
-                return Err(lookahead.error());
-            }
-        } else if lookahead.peek(Token![|]) {
-        } else {
-            return Err(lookahead.error());
-        }
+        let (rest_token, rest_comma, tail_params) = input.call(parse_rest)?;
 
         let right_pipe = input.parse()?;
         let expr = input.parse()?;
