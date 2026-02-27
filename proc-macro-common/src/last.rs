@@ -1,7 +1,7 @@
 //! Parse wrapper for types which need to have no tokens following them.
 
 use ::quote::ToTokens;
-use ::syn::parse::{Parse, ParseStream};
+use ::syn::parse::{End, Parse, ParseStream};
 
 /// Parse a syntax node expecting it to be the last node.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -19,11 +19,12 @@ impl<T> Last<T> {
     ) -> ::syn::Result<Self> {
         let value = input.call(parser)?;
 
-        if !input.is_empty() {
-            return Err(input.error("no tokens expected"));
+        let lookahead = input.lookahead1();
+        if lookahead.peek(End) {
+            Ok(Self(value))
+        } else {
+            Err(lookahead.error())
         }
-
-        Ok(Self(value))
     }
 
     /// Parse then convert into inner value.
