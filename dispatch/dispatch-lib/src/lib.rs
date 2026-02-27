@@ -16,6 +16,7 @@ pub mod attr;
 pub mod dispatch_fn;
 pub mod dispatch_parameter;
 pub mod path_prefix;
+pub mod psuedo_closure;
 
 mod util;
 mod kw {

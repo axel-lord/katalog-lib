@@ -6,11 +6,11 @@ use ::katalog_lib_proc_macro_common::{delimited::MacroDelimited, lazy::Lazy};
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    Expr, Generics, Ident, Token, braced,
+    Generics, Ident, Token, braced,
     ext::IdentExt,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
-    token::{self},
+    token,
 };
 
 /// A named MetaList like attribute.
@@ -197,138 +197,5 @@ impl ToTokens for FieldAttr {
             FieldAttr::Inner(ignore_use) => ignore_use.to_tokens(tokens),
             FieldAttr::Named(meta_list) => meta_list.to_tokens(tokens),
         }
-    }
-}
-
-/// Closure like with only one parameter.
-#[derive(Clone)]
-pub struct PsuedoClosure {
-    /// left '|' token.
-    pub left_pipe: Token![|],
-
-    /// Initial parameters.
-    pub head_params: Punctuated<Ident, Token![,]>,
-    /// '..' token.
-    pub rest_token: Option<Token![..]>,
-    /// Comma separating rest and tail params.
-    pub rest_comma: Option<Token![,]>,
-    /// Final parameters.
-    pub tail_params: Punctuated<Ident, Token![,]>,
-
-    /// right '|' token.
-    pub right_pipe: Token![|],
-    /// Closure expression.
-    pub expr: Expr,
-}
-
-impl PsuedoClosure {
-    /// Get head and tail parameters.
-    pub const fn params(&self) -> [&Punctuated<Ident, Token![,]>; 2] {
-        [&self.head_params, &self.tail_params]
-    }
-
-    /// Returns true if closure has a rest parameter.
-    pub const fn captures_rest(&self) -> bool {
-        self.rest_token.is_some()
-    }
-}
-
-impl Parse for PsuedoClosure {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let left_pipe = input.parse()?;
-
-        let mut head_params = Punctuated::new();
-        let mut tail_params = Punctuated::new();
-        let mut rest_token = None;
-        let mut rest_comma = None;
-
-        loop {
-            let lookahead = input.lookahead1();
-            if lookahead.peek(Token![|]) || lookahead.peek(Token![..]) {
-                break;
-            } else if lookahead.peek(Ident::peek_any) {
-                head_params.push(input.parse()?);
-                let lookahead = input.lookahead1();
-                if lookahead.peek(Token![,]) {
-                    head_params.push_punct(input.parse()?);
-                } else if lookahead.peek(Token![|]) {
-                    break;
-                } else {
-                    return Err(lookahead.error());
-                }
-            } else {
-                return Err(lookahead.error());
-            }
-        }
-
-        let lookahead = input.lookahead1();
-        if lookahead.peek(Token![..]) {
-            rest_token = Some(input.parse()?);
-
-            let lookahead = input.lookahead1();
-            if lookahead.peek(Token![,]) {
-                rest_comma = Some(input.parse()?);
-
-                loop {
-                    let lookahead = input.lookahead1();
-                    if lookahead.peek(Token![|]) {
-                        break;
-                    } else if lookahead.peek(Ident::peek_any) {
-                        tail_params.push(input.parse()?);
-
-                        let lookahead = input.lookahead1();
-                        if lookahead.peek(Token![,]) {
-                            tail_params.push_punct(input.parse()?);
-                        } else if lookahead.peek(Token![|]) {
-                            break;
-                        } else {
-                            return Err(lookahead.error());
-                        }
-                    } else {
-                        return Err(lookahead.error());
-                    }
-                }
-            } else if lookahead.peek(Token![|]) {
-            } else {
-                return Err(lookahead.error());
-            }
-        } else if lookahead.peek(Token![|]) {
-        } else {
-            return Err(lookahead.error());
-        }
-
-        let right_pipe = input.parse()?;
-        let expr = input.parse()?;
-
-        Ok(Self {
-            left_pipe,
-            head_params,
-            rest_token,
-            rest_comma,
-            tail_params,
-            right_pipe,
-            expr,
-        })
-    }
-}
-
-impl ToTokens for PsuedoClosure {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let Self {
-            left_pipe,
-            head_params,
-            rest_token: rest,
-            rest_comma,
-            tail_params,
-            right_pipe,
-            expr,
-        } = self;
-        left_pipe.to_tokens(tokens);
-        head_params.to_tokens(tokens);
-        rest.to_tokens(tokens);
-        rest_comma.to_tokens(tokens);
-        tail_params.to_tokens(tokens);
-        right_pipe.to_tokens(tokens);
-        expr.to_tokens(tokens);
     }
 }
