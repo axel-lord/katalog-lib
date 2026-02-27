@@ -221,6 +221,18 @@ pub struct PsuedoClosure {
     pub expr: Expr,
 }
 
+impl PsuedoClosure {
+    /// Get head and tail parameters.
+    pub const fn params(&self) -> [&Punctuated<Ident, Token![,]>; 2] {
+        [&self.head_params, &self.tail_params]
+    }
+
+    /// Returns true if closure has a rest parameter.
+    pub const fn captures_rest(&self) -> bool {
+        self.rest_token.is_some()
+    }
+}
+
 impl Parse for PsuedoClosure {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let left_pipe = input.parse()?;
