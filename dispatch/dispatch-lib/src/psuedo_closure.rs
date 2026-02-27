@@ -49,28 +49,28 @@ impl PsuedoClosure {
 fn parse_tail_inner(input: ParseStream) -> ::syn::Result<Params> {
     let mut tail = Params::new();
     loop {
-        let mut lookahead = input.lookahead1();
+        let lookahead = input.lookahead1();
         if lookahead.peek(Token![|]) {
-            break;
+            return Ok(tail);
         }
 
-        if lookahead.peek(Ident::peek_any) {
-            tail.push(input.parse()?);
-
-            lookahead = input.lookahead1();
-            if lookahead.peek(Token![|]) {
-                break;
-            }
-
-            if lookahead.peek(Token![,]) {
-                tail.push_punct(input.parse()?);
-                continue;
-            }
+        if !lookahead.peek(Ident::peek_any) {
+            return Err(lookahead.error());
         }
-        return Err(lookahead.error());
+
+        tail.push(input.parse()?);
+
+        let lookahead = input.lookahead1();
+        if lookahead.peek(Token![|]) {
+            return Ok(tail);
+        }
+
+        if !lookahead.peek(Token![,]) {
+            return Err(lookahead.error());
+        }
+
+        tail.push_punct(input.parse()?);
     }
-
-    Ok(tail)
 }
 
 /// Parse remainder after '..'.
@@ -104,31 +104,39 @@ fn parse_rest(
     }
 }
 
+/// Parse initial parameters.
+fn parse_head(input: ParseStream) -> ::syn::Result<Params> {
+    let mut head = Params::new();
+    loop {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(Token![|]) || lookahead.peek(Token![..]) {
+            return Ok(head);
+        }
+
+        if !lookahead.peek(Ident::peek_any) {
+            return Err(lookahead.error());
+        }
+
+        head.push(input.parse()?);
+
+        let lookahead = input.lookahead1();
+        if lookahead.peek(Token![|]) {
+            return Ok(head);
+        }
+
+        if !lookahead.peek(Token![,]) {
+            return Err(lookahead.error());
+        }
+
+        head.push_punct(input.parse()?);
+    }
+}
+
 impl Parse for PsuedoClosure {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let left_pipe = input.parse()?;
 
-        let mut head_params = Punctuated::new();
-
-        loop {
-            let lookahead = input.lookahead1();
-            if lookahead.peek(Token![|]) || lookahead.peek(Token![..]) {
-                break;
-            } else if lookahead.peek(Ident::peek_any) {
-                head_params.push(input.parse()?);
-                let lookahead = input.lookahead1();
-                if lookahead.peek(Token![,]) {
-                    head_params.push_punct(input.parse()?);
-                } else if lookahead.peek(Token![|]) {
-                    break;
-                } else {
-                    return Err(lookahead.error());
-                }
-            } else {
-                return Err(lookahead.error());
-            }
-        }
-
+        let head_params = input.call(parse_head)?;
         let (rest_token, rest_comma, tail_params) = input.call(parse_rest)?;
 
         let right_pipe = input.parse()?;
@@ -151,7 +159,7 @@ impl ToTokens for PsuedoClosure {
         let Self {
             left_pipe,
             head_params,
-            rest_token: rest,
+            rest_token,
             rest_comma,
             tail_params,
             right_pipe,
@@ -159,7 +167,7 @@ impl ToTokens for PsuedoClosure {
         } = self;
         left_pipe.to_tokens(tokens);
         head_params.to_tokens(tokens);
-        rest.to_tokens(tokens);
+        rest_token.to_tokens(tokens);
         rest_comma.to_tokens(tokens);
         tail_params.to_tokens(tokens);
         right_pipe.to_tokens(tokens);
