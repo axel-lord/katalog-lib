@@ -43,6 +43,50 @@ impl PsuedoClosure {
     pub const fn captures_rest(&self) -> bool {
         self.rest_token.is_some()
     }
+
+    /// Returns lenght of head and tail parameters combined.
+    pub fn parameters_len(&self) -> usize {
+        self.head_params.len() + self.tail_params.len()
+    }
+
+    /// Match parameters against a double ended iterator of values.
+    ///
+    /// # Errors
+    /// If there are not enough items in the iterator, the length of the iterator is returned.
+    pub fn match_with<I>(&self, items: I) -> Result<Vec<(I::Item, &Ident)>, usize>
+    where
+        I: IntoIterator,
+        I::IntoIter: DoubleEndedIterator,
+    {
+        let mut outputs = Vec::new();
+        let mut items = items.into_iter();
+
+        // Add head parameters.
+        for param in &self.head_params {
+            let Some(item) = items.next() else {
+                return Err(outputs.len());
+            };
+            outputs.push((item, param));
+        }
+
+        // Save point of vec where tail parameters start.
+        let rest_point = outputs.len();
+
+        // Add tail parameters read in reverse.
+        for param in self.tail_params.iter().rev() {
+            let Some(item) = items.next_back() else {
+                return Err(outputs.len());
+            };
+            outputs.push((item, param));
+        }
+
+        // Correct order of tail parameters.
+        if let Some(tail) = outputs.get_mut(rest_point..) {
+            tail.reverse();
+        }
+
+        Ok(outputs)
+    }
 }
 
 /// Parse tail params.
