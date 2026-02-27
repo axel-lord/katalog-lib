@@ -49,6 +49,36 @@ impl PsuedoClosure {
         self.head_params.len() + self.tail_params.len()
     }
 
+    /// Get all parameters.
+    pub fn parameters(&self) -> impl DoubleEndedIterator<Item = &'_ Ident> {
+        let Self {
+            head_params,
+            tail_params,
+            ..
+        } = self;
+        head_params.iter().chain(tail_params.iter())
+    }
+
+    /// Get all parameters as mutable.
+    pub fn parameters_mut(&mut self) -> impl DoubleEndedIterator<Item = &'_ mut Ident> {
+        let Self {
+            head_params,
+            tail_params,
+            ..
+        } = self;
+        head_params.iter_mut().chain(tail_params.iter_mut())
+    }
+
+    /// Convert into parameters.
+    pub fn into_parameters(self) -> impl DoubleEndedIterator<Item = Ident> {
+        let Self {
+            head_params,
+            tail_params,
+            ..
+        } = self;
+        head_params.into_iter().chain(tail_params)
+    }
+
     /// Match parameters against a double ended iterator of values.
     ///
     /// # Errors
