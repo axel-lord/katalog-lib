@@ -1,5 +1,7 @@
 //! Ast for fucntion templates.
 
+use ::std::collections::BTreeMap;
+
 use ::katalog_lib_proc_macro_common::{attr_writer, lookahead_chain::LookaheadChain};
 use ::proc_macro2::{Span, TokenStream, extra::DelimSpan};
 use ::quote::ToTokens;
@@ -17,7 +19,7 @@ use ::syn::{
 };
 
 use crate::{
-    attr::{FieldAttr, FieldAttrInner},
+    attr::{DispatchFnAttr, FieldAttr, FieldAttrInner, ParameterMapping},
     dispatch_parameter::DispatchParameters,
     path_prefix::{PathPrefix, Qualified},
     util::ident_to_expr,
@@ -500,12 +502,24 @@ impl DispatchFn {
             variadic: None,
             output: self.output.clone(),
         };
-        let attrs = self
-            .attrs
-            .iter()
-            .filter(|attr| !attr.path().is_ident("dispatch"))
-            .cloned()
-            .collect();
+        let mut mappings = BTreeMap::new();
+        let mut attrs = Vec::new();
+
+        for attr in &self.attrs {
+            if !attr.path().is_ident("dispatch") {
+                attrs.push(attr.clone());
+            }
+
+            match attr.parse_args::<DispatchFnAttr>()? {
+                DispatchFnAttr::Remap(attr_remap) => mappings.extend(
+                    attr_remap
+                        .mappings
+                        .into_iter()
+                        .map(ParameterMapping::into_pair),
+                ),
+            }
+        }
+
         let vis = self.vis.clone();
         let ident = &item_enum.ident;
         let this_ident = self.parameters.this_ident(Span::call_site());

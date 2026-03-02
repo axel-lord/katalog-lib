@@ -25,6 +25,7 @@ mod kw {
     use ::syn::custom_keyword;
 
     custom_keyword!(ignore);
+    custom_keyword!(remap);
 }
 
 /// Macro to implement dispatch.

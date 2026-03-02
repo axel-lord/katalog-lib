@@ -211,3 +211,105 @@ impl ToTokens for FieldAttr {
         }
     }
 }
+
+/// A single parameter mapping.
+#[derive(Clone)]
+pub struct ParameterMapping {
+    /// Name of parameter.
+    pub param: Ident,
+    /// ':' token.
+    pub colon_token: Token![:],
+    /// Name to bind parameter to.
+    pub binding: Ident,
+}
+
+impl ParameterMapping {
+    /// Convert into a param, binding pair. Discarding colon token.
+    pub fn into_pair(self) -> (Ident, Ident) {
+        let Self { param, binding, .. } = self;
+        (param, binding)
+    }
+}
+
+impl Parse for ParameterMapping {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            param: input.parse()?,
+            colon_token: input.parse()?,
+            binding: input.parse()?,
+        })
+    }
+}
+
+impl ToTokens for ParameterMapping {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            param,
+            colon_token,
+            binding,
+        } = self;
+        param.to_tokens(tokens);
+        colon_token.to_tokens(tokens);
+        binding.to_tokens(tokens);
+    }
+}
+
+/// Attribute used to remap parameters.
+#[derive(Clone)]
+pub struct AttrRemap {
+    /// Remap ident.
+    pub remap: kw::remap,
+    /// Brace token arround remap block.
+    pub brace_token: token::Brace,
+    /// Mappings.
+    pub mappings: Punctuated<ParameterMapping, Token![,]>,
+}
+
+impl Parse for AttrRemap {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        Ok(Self {
+            remap: input.parse()?,
+            brace_token: braced!(content in input),
+            mappings: content.call(Punctuated::parse_terminated)?,
+        })
+    }
+}
+
+impl ToTokens for AttrRemap {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        let Self {
+            remap,
+            brace_token,
+            mappings,
+        } = self;
+        remap.to_tokens(tokens);
+        brace_token.surround(tokens, |tokens| mappings.to_tokens(tokens));
+    }
+}
+
+/// Attribute on dispatch function.
+#[derive(Clone)]
+pub enum DispatchFnAttr {
+    /// Remap parameters in function.
+    Remap(AttrRemap),
+}
+
+impl Parse for DispatchFnAttr {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(kw::remap) {
+            Ok(Self::Remap(input.parse()?))
+        } else {
+            Err(lookahead.error())
+        }
+    }
+}
+
+impl ToTokens for DispatchFnAttr {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            DispatchFnAttr::Remap(attr_remap) => attr_remap.to_tokens(tokens),
+        }
+    }
+}
