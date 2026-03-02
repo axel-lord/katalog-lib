@@ -500,7 +500,12 @@ impl DispatchFn {
             variadic: None,
             output: self.output.clone(),
         };
-        let attrs = self.attrs.clone();
+        let attrs = self
+            .attrs
+            .iter()
+            .filter(|attr| !attr.path().is_ident("dispatch"))
+            .cloned()
+            .collect();
         let vis = self.vis.clone();
         let ident = &item_enum.ident;
         let this_ident = self.parameters.this_ident(Span::call_site());
