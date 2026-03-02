@@ -224,10 +224,14 @@ pub struct ParameterMapping {
 }
 
 impl ParameterMapping {
-    /// Convert into a param, binding pair. Discarding colon token.
-    pub fn into_pair(self) -> (Ident, Ident) {
-        let Self { param, binding, .. } = self;
-        (param, binding)
+    /// Convert into a param, (colon, ,binding)) pair.
+    pub fn into_pair(self) -> (Ident, (Token![:], Ident)) {
+        let Self {
+            param,
+            binding,
+            colon_token,
+        } = self;
+        (param, (colon_token, binding))
     }
 }
 

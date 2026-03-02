@@ -8,9 +8,9 @@ use ::quote::ToTokens;
 use ::syn::{
     Arm, Attribute, Block, Expr, ExprAwait, ExprBlock, ExprCall, ExprMatch, ExprReference,
     ExprTuple, Field, FieldPat, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItem,
-    ImplItemFn, ItemEnum, Member, Pat, PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path,
-    QSelf, ReturnType, Signature, Stmt, Token, Type, TypeTuple, Variant, Visibility, WhereClause,
-    braced,
+    ImplItemFn, ItemEnum, Local, LocalInit, Member, Pat, PatPath, PatRest, PatStruct,
+    PatTupleStruct, PatWild, Path, QSelf, ReturnType, Signature, Stmt, Token, Type, TypeTuple,
+    Variant, Visibility, WhereClause, braced,
     ext::IdentExt as _,
     parse::{Lookahead1, Parse, ParseStream},
     punctuated::{Pair, Punctuated},
@@ -502,6 +502,7 @@ impl DispatchFn {
             variadic: None,
             output: self.output.clone(),
         };
+
         let mut mappings = BTreeMap::new();
         let mut attrs = Vec::new();
 
@@ -536,12 +537,39 @@ impl DispatchFn {
                 .map(|variant| self.match_arm(ident, variant, this_ident.clone()))
                 .collect::<Result<Vec<_>, _>>()?,
         });
+
+        let mut stmts = Vec::with_capacity(mappings.len() + 1);
+        stmts.push(Stmt::Expr(expr, None));
+
+        for (param, (colon_token, binding)) in mappings {
+            let span = colon_token.span;
+            stmts.push(Stmt::Local(Local {
+                attrs: Vec::new(),
+                let_token: Token![let](span),
+                pat: Pat::Path(PatPath {
+                    attrs: Vec::new(),
+                    qself: None,
+                    path: binding.into(),
+                }),
+                init: Some(LocalInit {
+                    eq_token: Token![=](span),
+                    expr: Box::new(Expr::Path(PatPath {
+                        attrs: Vec::new(),
+                        qself: None,
+                        path: param.into(),
+                    })),
+                    diverge: None,
+                }),
+                semi_token: Token![;](span),
+            }));
+        }
+
         let block = Block {
             brace_token: token::Brace::default(),
-            stmts: Vec::from_iter([Stmt::Expr(expr, None)]),
+            stmts,
         };
 
-        Ok(ImplItem::from(ImplItemFn {
+        Ok(ImplItem::Fn(ImplItemFn {
             attrs,
             vis,
             defaultness: None,
