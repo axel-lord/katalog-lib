@@ -1,4 +1,5 @@
 //! Extensions to macro delimiters.
+#![allow(missing_debug_implementations, reason = "false positive")]
 
 use ::core::ops::{Deref, DerefMut};
 
@@ -13,7 +14,7 @@ use ::syn::{
 use crate::last::Last;
 
 /// Node for macro delimited content.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct MacroDelimited<T> {
     /// Delimiter of content.
     pub delim: MacroDelimiter,
