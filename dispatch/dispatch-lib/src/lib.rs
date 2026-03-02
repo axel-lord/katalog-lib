@@ -52,6 +52,7 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
         for attr in attrs {
             match attr {
                 DispatchAttr::Impl(ImplAttr {
+                    attrs,
                     impl_token,
                     generics,
                     self_token: _,
@@ -59,7 +60,7 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
                     functions,
                 }) => {
                     let impl_block = ItemImpl {
-                        attrs: Vec::new(),
+                        attrs,
                         defaultness: None,
                         unsafety: None,
                         impl_token,

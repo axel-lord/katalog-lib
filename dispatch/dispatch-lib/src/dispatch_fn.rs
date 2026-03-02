@@ -1,6 +1,6 @@
 //! Ast for fucntion templates.
 
-use ::katalog_lib_proc_macro_common::lookahead_chain::LookaheadChain;
+use ::katalog_lib_proc_macro_common::{attr_writer, lookahead_chain::LookaheadChain};
 use ::proc_macro2::{Span, TokenStream, extra::DelimSpan};
 use ::quote::ToTokens;
 use ::syn::{
@@ -26,6 +26,9 @@ use crate::{
 /// Dispatch function template.
 #[derive(Clone)]
 pub struct DispatchFn {
+    /// Function attributes.
+    pub attrs: Vec<Attribute>,
+
     /// 'for' token signaling generics.
     pub for_token: Option<Token![for]>,
     /// Generic arguments.
@@ -497,6 +500,7 @@ impl DispatchFn {
             variadic: None,
             output: self.output.clone(),
         };
+        let attrs = self.attrs.clone();
         let vis = self.vis.clone();
         let ident = &item_enum.ident;
         let this_ident = self.parameters.this_ident(Span::call_site());
@@ -519,7 +523,7 @@ impl DispatchFn {
         };
 
         Ok(ImplItem::from(ImplItemFn {
-            attrs: Vec::new(),
+            attrs,
             vis,
             defaultness: None,
             sig,
@@ -531,6 +535,7 @@ impl DispatchFn {
 impl ToTokens for DispatchFn {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let Self {
+            attrs,
             for_token,
             generics,
             as_token,
@@ -547,6 +552,7 @@ impl ToTokens for DispatchFn {
             trailing_semi,
         } = self;
 
+        attrs.iter().for_each(attr_writer::outer(tokens));
         for_token.to_tokens(tokens);
         generics.to_tokens(tokens);
         if let Some(as_token) = as_token {
@@ -569,6 +575,7 @@ impl ToTokens for DispatchFn {
 
 impl Parse for DispatchFn {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let attrs = input.call(Attribute::parse_outer)?;
         let ((for_token, mut generics), (as_token, ident), vis, constness, asyncness, fn_token) =
             input
                 .lookahead1()
@@ -680,6 +687,7 @@ impl Parse for DispatchFn {
         })?;
 
         Ok(Self {
+            attrs,
             for_token,
             generics,
             as_token,

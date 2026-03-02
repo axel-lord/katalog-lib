@@ -2,11 +2,11 @@
 
 use crate::{dispatch_fn::DispatchFn, kw};
 
-use ::katalog_lib_proc_macro_common::{delimited::MacroDelimited, lazy::Lazy};
+use ::katalog_lib_proc_macro_common::{attr_writer, delimited::MacroDelimited, lazy::Lazy};
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    Generics, Ident, Token, braced,
+    Attribute, Generics, Ident, Token, braced,
     ext::IdentExt,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
@@ -45,6 +45,8 @@ where
 /// Dispatch impl attribute.
 #[derive(Clone)]
 pub struct ImplAttr {
+    /// Impl block attributes.
+    pub attrs: Vec<Attribute>,
     /// Impl token.
     pub impl_token: Token![impl],
     /// Optional generic parameters for impl.
@@ -60,12 +62,14 @@ pub struct ImplAttr {
 impl ToTokens for ImplAttr {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let Self {
+            attrs,
             impl_token,
             generics,
             self_token,
             brace_token,
             functions,
         } = self;
+        attrs.iter().for_each(attr_writer::outer(tokens));
         impl_token.to_tokens(tokens);
         generics.to_tokens(tokens);
         self_token.to_tokens(tokens);
@@ -73,6 +77,7 @@ impl ToTokens for ImplAttr {
             generics.where_clause.to_tokens(tokens);
         }
         brace_token.surround(tokens, |tokens| {
+            attrs.iter().for_each(attr_writer::inner(tokens));
             for function in functions {
                 function.to_tokens(tokens);
             }
@@ -82,6 +87,7 @@ impl ToTokens for ImplAttr {
 
 impl Parse for ImplAttr {
     fn parse(input: ParseStream) -> ::syn::Result<Self> {
+        let mut attrs = input.call(Attribute::parse_outer)?;
         let impl_token = input.parse()?;
 
         let lookahead = input.lookahead1();
@@ -106,11 +112,17 @@ impl Parse for ImplAttr {
         let brace_token = braced!(content in input);
         let mut functions = Vec::new();
 
+        attrs.extend(content.call(Attribute::parse_inner)?);
+
         while !content.is_empty() {
-            functions.push(content.parse()?);
+            let attrs = content.call(Attribute::parse_outer)?;
+            let mut function = content.parse::<DispatchFn>()?;
+            function.attrs.extend(attrs);
+            functions.push(function);
         }
 
         Ok(Self {
+            attrs,
             impl_token,
             generics,
             self_token,
