@@ -3,7 +3,7 @@
 use ::quote::ToTokens;
 use ::syn::{
     Token,
-    parse::{Parse, ParseStream},
+    parse::{Lookahead1, Parse, ParseStream},
     token,
 };
 
@@ -44,6 +44,13 @@ where
             }
             DynAttrContent::Delimited(macro_delimited) => macro_delimited.to_tokens(tokens),
         }
+    }
+}
+
+impl DynAttrContent<()> {
+    /// Peek valid initial tokens from lookahead.
+    pub fn peek_lookahead(lookahead: &Lookahead1) -> bool {
+        lookahead.peek(Token![=]) | delimited::peek_lookahead(lookahead)
     }
 }
 

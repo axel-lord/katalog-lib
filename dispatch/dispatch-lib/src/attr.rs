@@ -2,11 +2,13 @@
 
 use crate::{dispatch_fn::DispatchFn, kw, mono_closure::MonoClosure};
 
-use ::katalog_lib_proc_macro_common::{attr_writer, delimited::MacroDelimited, lazy::Lazy};
+use ::katalog_lib_proc_macro_common::{
+    attr_writer, delimited::MacroDelimited, dyn_attr::DynAttrContent, lazy::Lazy,
+};
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    Attribute, Generics, Ident, Token, braced,
+    Attribute, Expr, ExprCall, Generics, Ident, PatPath, Token, braced,
     ext::IdentExt,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
@@ -302,6 +304,63 @@ pub enum AttrMap {
         /// Closure to map with.
         closure: MonoClosure,
     },
+    /// Map using a path to a function.
+    Path {
+        /// Map keyword.
+        map_kw: kw::map,
+        /// Path to map using.
+        path: DynAttrContent<PatPath>,
+    },
+}
+
+impl AttrMap {
+    /// Wrap an expression with either closure or path.
+    pub fn wrap_expr(&self, expr: Expr) -> Expr {
+        match self {
+            AttrMap::Closure { map_kw, closure } => todo!(),
+            AttrMap::Path { map_kw, path } => Expr::Call(ExprCall {
+                attrs: Vec::new(),
+                func: Box::new(Expr::Path(path.value().clone())),
+                paren_token: token::Paren(map_kw.span),
+                args: {
+                    let mut args = Punctuated::new();
+                    args.push(expr);
+                    args
+                },
+            }),
+        }
+    }
+}
+
+impl Parse for AttrMap {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let map_kw = input.parse()?;
+        let lookahead = input.lookahead1();
+        if lookahead.peek(Token![|]) {
+            let closure = input.parse()?;
+            Ok(Self::Closure { map_kw, closure })
+        } else if DynAttrContent::peek_lookahead(&lookahead) {
+            let path = input.parse()?;
+            Ok(Self::Path { map_kw, path })
+        } else {
+            Err(lookahead.error())
+        }
+    }
+}
+
+impl ToTokens for AttrMap {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            AttrMap::Closure { map_kw, closure } => {
+                map_kw.to_tokens(tokens);
+                closure.to_tokens(tokens);
+            }
+            AttrMap::Path { map_kw, path } => {
+                map_kw.to_tokens(tokens);
+                path.to_tokens(tokens);
+            }
+        }
+    }
 }
 
 /// Attribute on dispatch function.
