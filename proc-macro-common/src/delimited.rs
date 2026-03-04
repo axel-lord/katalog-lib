@@ -6,11 +6,16 @@ use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
     MacroDelimiter, braced, bracketed, parenthesized,
-    parse::{Parse, ParseStream},
+    parse::{Lookahead1, Parse, ParseStream},
     token,
 };
 
 use crate::last::Last;
+
+/// Peek a lookahead for any macro delimiter.
+pub fn peek_lookahead(lookahead: &Lookahead1) -> bool {
+    lookahead.peek(token::Brace) || lookahead.peek(token::Bracket) || lookahead.peek(token::Paren)
+}
 
 /// Node for macro delimited content.
 #[derive(Clone)]

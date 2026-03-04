@@ -1,12 +1,17 @@
 //! More dynamic attribute parsing.
 
-use ::syn::{MacroDelimiter, Token, parse::ParseStream, token};
+use ::quote::ToTokens;
+use ::syn::{
+    Token,
+    parse::{Parse, ParseStream},
+    token,
+};
 
-use crate::delimited::MacroDelimited;
+use crate::delimited::{self, MacroDelimited};
 
 /// Attribute content which may be either delimited, or follow an '=' equals.
 #[derive(Clone)]
-pub enum DynAttr<T> {
+pub enum DynAttrContent<T> {
     /// Content is of '=' kind.
     Equals {
         /// '=' token.
@@ -18,20 +23,44 @@ pub enum DynAttr<T> {
     Delimited(MacroDelimited<T>),
 }
 
-impl<T> DynAttr<T> {
+impl<T> Parse for DynAttrContent<T>
+where
+    T: Parse,
+{
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Self::parse_with(input, T::parse)
+    }
+}
+
+impl<T> ToTokens for DynAttrContent<T>
+where
+    T: ToTokens,
+{
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            DynAttrContent::Equals { eq_token, value } => {
+                eq_token.to_tokens(tokens);
+                value.to_tokens(tokens);
+            }
+            DynAttrContent::Delimited(macro_delimited) => macro_delimited.to_tokens(tokens),
+        }
+    }
+}
+
+impl<T> DynAttrContent<T> {
     /// Get value of attribute.
     pub const fn value(&self) -> &T {
         match self {
-            DynAttr::Equals { value, .. } => value,
-            DynAttr::Delimited(delimited) => &delimited.content,
+            DynAttrContent::Equals { value, .. } => value,
+            DynAttrContent::Delimited(delimited) => &delimited.content,
         }
     }
 
     /// Get value of attribute as mutable.
     pub const fn value_mut(&mut self) -> &mut T {
         match self {
-            DynAttr::Equals { value, .. } => value,
-            DynAttr::Delimited(delimited) => &mut delimited.content,
+            DynAttrContent::Equals { value, .. } => value,
+            DynAttrContent::Delimited(delimited) => &mut delimited.content,
         }
     }
 
@@ -51,10 +80,7 @@ impl<T> DynAttr<T> {
                 eq_token: input.parse()?,
                 value: input.call(parser)?,
             })
-        } else if lookahead.peek(token::Brace)
-            || lookahead.peek(token::Bracket)
-            || lookahead.peek(token::Paren)
-        {
+        } else if delimited::peek_lookahead(&lookahead) {
             Ok(Self::Delimited(MacroDelimited::parse_with(input, parser)?))
         } else {
             Err(lookahead.error())
