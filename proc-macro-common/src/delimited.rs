@@ -1,5 +1,4 @@
 //! Extensions to macro delimiters.
-#![allow(missing_debug_implementations, reason = "false positive")]
 
 use ::core::ops::{Deref, DerefMut};
 
@@ -29,7 +28,7 @@ impl<T> MacroDelimited<T> {
     /// If no delimiter is parsed.
     /// Or if content cannot be parsed.
     /// Or if any tokens are left within delimiters after parse.
-    fn parse_with(
+    pub fn parse_with(
         input: ParseStream,
         parser: fn(ParseStream) -> ::syn::Result<T>,
     ) -> ::syn::Result<Self> {

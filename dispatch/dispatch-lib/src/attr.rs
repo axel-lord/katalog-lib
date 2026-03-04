@@ -1,6 +1,6 @@
 //! Attributes
 
-use crate::{dispatch_fn::DispatchFn, kw};
+use crate::{dispatch_fn::DispatchFn, kw, mono_closure::MonoClosure};
 
 use ::katalog_lib_proc_macro_common::{attr_writer, delimited::MacroDelimited, lazy::Lazy};
 use ::proc_macro2::TokenStream;
@@ -290,6 +290,18 @@ impl ToTokens for AttrRemap {
         remap.to_tokens(tokens);
         brace_token.surround(tokens, |tokens| mappings.to_tokens(tokens));
     }
+}
+
+/// Attribute to map result of dispatch.
+#[derive(Clone)]
+pub enum AttrMap {
+    /// Map using a mono closure.
+    Closure {
+        /// Map keyword.
+        map_kw: kw::map,
+        /// Closure to map with.
+        closure: MonoClosure,
+    },
 }
 
 /// Attribute on dispatch function.

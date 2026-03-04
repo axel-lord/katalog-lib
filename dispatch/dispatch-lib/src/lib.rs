@@ -15,6 +15,7 @@ use crate::attr::{DispatchAttr, ImplAttr};
 pub mod attr;
 pub mod dispatch_fn;
 pub mod dispatch_parameter;
+pub mod mono_closure;
 pub mod path_prefix;
 pub mod psuedo_closure;
 
@@ -26,6 +27,7 @@ mod kw {
 
     custom_keyword!(ignore);
     custom_keyword!(remap);
+    custom_keyword!(map);
 }
 
 /// Macro to implement dispatch.
