@@ -8,7 +8,8 @@ use ::katalog_lib_proc_macro_common::{
 use ::proc_macro2::TokenStream;
 use ::quote::ToTokens;
 use ::syn::{
-    Attribute, Expr, ExprCall, Generics, Ident, PatPath, Token, braced,
+    Attribute, Block, Expr, ExprBlock, ExprCall, ExprLet, Generics, Ident, Pat, PatPath, Stmt,
+    Token, braced,
     ext::IdentExt,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
@@ -317,7 +318,30 @@ impl AttrMap {
     /// Wrap an expression with either closure or path.
     pub fn wrap_expr(&self, expr: Expr) -> Expr {
         match self {
-            AttrMap::Closure { map_kw, closure } => todo!(),
+            AttrMap::Closure { map_kw, closure } => Expr::Block(ExprBlock {
+                attrs: Vec::new(),
+                label: None,
+                block: Block {
+                    brace_token: token::Brace(map_kw.span),
+                    stmts: Vec::from_iter([
+                        Stmt::Expr(
+                            Expr::Let(ExprLet {
+                                attrs: Vec::new(),
+                                let_token: Token![let](map_kw.span),
+                                pat: Box::new(Pat::Path(PatPath {
+                                    attrs: Vec::new(),
+                                    qself: None,
+                                    path: closure.param.clone().into(),
+                                })),
+                                eq_token: Token![=](map_kw.span),
+                                expr: Box::new(expr),
+                            }),
+                            Some(Token![;](map_kw.span)),
+                        ),
+                        Stmt::Expr(closure.expr.clone(), None),
+                    ]),
+                },
+            }),
             AttrMap::Path { map_kw, path } => Expr::Call(ExprCall {
                 attrs: Vec::new(),
                 func: Box::new(Expr::Path(path.value().clone())),
