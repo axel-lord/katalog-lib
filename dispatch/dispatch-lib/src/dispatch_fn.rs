@@ -25,6 +25,9 @@ use crate::{
     util::ident_to_expr,
 };
 
+/// Function pointer mapping idents.
+type ParamMap = dyn Fn(&Ident) -> &Ident;
+
 /// Dispatch function template.
 #[derive(Clone)]
 pub struct DispatchFn {
@@ -167,7 +170,7 @@ impl DispatchFn {
     }
 
     /// Generate a cell for receiver with type ty.
-    fn call(&self, expr: Expr, ty: &Type) -> Box<Expr> {
+    fn call(&self, expr: Expr, ty: &Type, param_map: &ParamMap) -> Box<Expr> {
         let DispatchParameters {
             paren_token,
             infix_comma,
@@ -184,11 +187,17 @@ impl DispatchFn {
 
                 if let Some(infix_comma) = infix_comma {
                     args.push_punct(*infix_comma);
-                    args.extend(parameters.pairs().map(|pair| match pair {
-                        Pair::Punctuated(value, punct) => {
-                            Pair::Punctuated(ident_to_expr(value.ident.clone()), *punct)
-                        }
-                        Pair::End(value) => Pair::End(ident_to_expr(value.ident.clone())),
+                    args.extend(parameters.pairs().map(|pair| {
+                        let (value, punct) = pair.into_tuple();
+                        let value = param_map(&value.ident);
+                        Pair::new(
+                            Expr::Path(PatPath {
+                                attrs: Vec::new(),
+                                qself: None,
+                                path: value.clone().into(),
+                            }),
+                            punct.copied(),
+                        )
                     }));
                 }
 
