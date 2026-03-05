@@ -12,49 +12,34 @@ use ::syn::{
     token,
 };
 
-/// A single parameter mapping.
+/// Attribute on dispatch function.
 #[derive(Clone)]
-pub struct ParameterMapping {
-    /// Name of parameter.
-    pub param: Ident,
-    /// ':' token.
-    pub colon_token: Token![:],
-    /// Name to bind parameter to.
-    pub binding: Ident,
+pub enum DispatchFnAttr {
+    /// Remap parameters in function.
+    Remap(AttrRemap),
+    /// Map result of calls.
+    Map(AttrMap),
 }
 
-impl ParameterMapping {
-    /// Convert into a param, (colon, ,binding)) pair.
-    pub fn into_pair(self) -> (Ident, (Token![:], Ident)) {
-        let Self {
-            param,
-            binding,
-            colon_token,
-        } = self;
-        (param, (colon_token, binding))
-    }
-}
-
-impl Parse for ParameterMapping {
+impl Parse for DispatchFnAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(Self {
-            param: input.parse()?,
-            colon_token: input.parse()?,
-            binding: input.parse()?,
-        })
+        let lookahead = input.lookahead1();
+        if lookahead.peek(kw::remap) {
+            Ok(Self::Remap(input.parse()?))
+        } else if lookahead.peek(kw::map) {
+            Ok(Self::Map(input.parse()?))
+        } else {
+            Err(lookahead.error())
+        }
     }
 }
 
-impl ToTokens for ParameterMapping {
+impl ToTokens for DispatchFnAttr {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let Self {
-            param,
-            colon_token,
-            binding,
-        } = self;
-        param.to_tokens(tokens);
-        colon_token.to_tokens(tokens);
-        binding.to_tokens(tokens);
+        match self {
+            DispatchFnAttr::Remap(attr_remap) => attr_remap.to_tokens(tokens),
+            DispatchFnAttr::Map(attr_map) => attr_map.to_tokens(tokens),
+        }
     }
 }
 
@@ -184,33 +169,48 @@ impl ToTokens for AttrMap {
     }
 }
 
-/// Attribute on dispatch function.
+/// A single parameter mapping.
 #[derive(Clone)]
-pub enum DispatchFnAttr {
-    /// Remap parameters in function.
-    Remap(AttrRemap),
-    /// Map result of calls.
-    Map(AttrMap),
+pub struct ParameterMapping {
+    /// Name of parameter.
+    pub param: Ident,
+    /// ':' token.
+    pub colon_token: Token![:],
+    /// Name to bind parameter to.
+    pub binding: Ident,
 }
 
-impl Parse for DispatchFnAttr {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let lookahead = input.lookahead1();
-        if lookahead.peek(kw::remap) {
-            Ok(Self::Remap(input.parse()?))
-        } else if lookahead.peek(kw::map) {
-            Ok(Self::Map(input.parse()?))
-        } else {
-            Err(lookahead.error())
-        }
+impl ParameterMapping {
+    /// Convert into a param, (colon, ,binding)) pair.
+    pub fn into_pair(self) -> (Ident, (Token![:], Ident)) {
+        let Self {
+            param,
+            binding,
+            colon_token,
+        } = self;
+        (param, (colon_token, binding))
     }
 }
 
-impl ToTokens for DispatchFnAttr {
+impl Parse for ParameterMapping {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            param: input.parse()?,
+            colon_token: input.parse()?,
+            binding: input.parse()?,
+        })
+    }
+}
+
+impl ToTokens for ParameterMapping {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        match self {
-            DispatchFnAttr::Remap(attr_remap) => attr_remap.to_tokens(tokens),
-            DispatchFnAttr::Map(attr_map) => attr_map.to_tokens(tokens),
-        }
+        let Self {
+            param,
+            colon_token,
+            binding,
+        } = self;
+        param.to_tokens(tokens);
+        colon_token.to_tokens(tokens);
+        binding.to_tokens(tokens);
     }
 }

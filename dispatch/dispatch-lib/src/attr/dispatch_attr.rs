@@ -11,6 +11,24 @@ use ::syn::{
     token,
 };
 
+/// Dispatch attributes.
+#[derive(Clone)]
+pub enum DispatchAttr {
+    /// Impl block attribute.
+    Impl(ImplAttr),
+}
+
+impl Parse for DispatchAttr {
+    fn parse(input: ParseStream) -> ::syn::Result<Self> {
+        let lookahead = input.lookahead1();
+        if lookahead.peek(Token![impl]) {
+            Ok(DispatchAttr::Impl(input.parse()?))
+        } else {
+            Err(lookahead.error())
+        }
+    }
+}
+
 /// Dispatch impl attribute.
 #[derive(Clone)]
 pub struct ImplAttr {
@@ -98,23 +116,5 @@ impl Parse for ImplAttr {
             brace_token,
             functions,
         })
-    }
-}
-
-/// Dispatch attributes.
-#[derive(Clone)]
-pub enum DispatchAttr {
-    /// Impl block attribute.
-    Impl(ImplAttr),
-}
-
-impl Parse for DispatchAttr {
-    fn parse(input: ParseStream) -> ::syn::Result<Self> {
-        let lookahead = input.lookahead1();
-        if lookahead.peek(Token![impl]) {
-            Ok(DispatchAttr::Impl(input.parse()?))
-        } else {
-            Err(lookahead.error())
-        }
     }
 }
