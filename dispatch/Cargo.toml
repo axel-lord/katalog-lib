@@ -1,0 +1,15 @@
+[package]
+name = "katalog-lib-dispatch"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+katalog-lib-dispatch-lib.workspace = true
+
+[lints]
+workspace = true
