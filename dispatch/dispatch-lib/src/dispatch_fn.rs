@@ -19,7 +19,7 @@ use ::syn::{
 };
 
 use crate::{
-    attr::{DispatchFnAttr, FieldAttr, FieldAttrInner, ParameterMapping},
+    attr::{AttrMap, DispatchFnAttr, FieldAttr, FieldAttrInner, ParameterMapping},
     dispatch_parameter::DispatchParameters,
     path_prefix::{PathPrefix, Qualified},
     util::ident_to_expr,
@@ -178,14 +178,20 @@ impl DispatchFn {
     }
 
     /// Generate a cell for receiver with type ty.
-    fn call(&self, expr: Expr, ty: &Type, param_map: ParamMap) -> Box<Expr> {
+    fn call(
+        &self,
+        expr: Expr,
+        ty: &Type,
+        param_map: ParamMap,
+        result_map: &[AttrMap],
+    ) -> Box<Expr> {
         let DispatchParameters {
             paren_token,
             infix_comma,
             parameters,
             ..
         } = &self.parameters;
-        let call = Box::new(Expr::from(ExprCall {
+        let call = Expr::from(ExprCall {
             attrs: Vec::new(),
             func: Box::new(self.call_path(ty).into()),
             paren_token: *paren_token,
@@ -211,18 +217,23 @@ impl DispatchFn {
 
                 args
             },
-        }));
+        });
 
-        if let Some(asyncness) = &self.asyncness {
-            Box::new(Expr::from(ExprAwait {
+        let expr = if let Some(asyncness) = &self.asyncness {
+            Expr::from(ExprAwait {
                 attrs: Vec::new(),
-                base: call,
+                base: Box::new(call),
                 dot_token: Token![.](asyncness.span),
                 await_token: Token![await](asyncness.span),
-            }))
+            })
         } else {
             call
-        }
+        };
+        Box::new(
+            result_map
+                .iter()
+                .fold(expr, |expr, attr| attr.wrap_expr(expr)),
+        )
     }
 
     /// Pattern and body of match arm for a regular field.
@@ -236,6 +247,7 @@ impl DispatchFn {
         delim_span: DelimSpan,
         is_last: bool,
         param_map: ParamMap,
+        result_map: &[AttrMap],
     ) -> (Pat, Box<Expr>) {
         let is_single = is_last && idx == 0;
         let pat = if let Some(ident) = &field.ident {
@@ -309,7 +321,7 @@ impl DispatchFn {
                 },
             })
         };
-        let expr = self.call(ident_to_expr(this_ident), &field.ty, param_map);
+        let expr = self.call(ident_to_expr(this_ident), &field.ty, param_map, result_map);
         (pat, expr)
     }
 
@@ -320,6 +332,7 @@ impl DispatchFn {
         path: Path,
         variant_ident: &Ident,
         param_map: ParamMap,
+        result_map: &[AttrMap],
     ) -> (Pat, Box<Expr>) {
         let pat = match fields {
             Fields::Named(FieldsNamed { brace_token, .. }) => Pat::from(PatStruct {
@@ -386,6 +399,7 @@ impl DispatchFn {
                         elems: Punctuated::new(),
                     }),
                     param_map,
+                    result_map,
                 )
             });
         (pat, expr)
@@ -433,6 +447,7 @@ impl DispatchFn {
         variant: &Variant,
         this_ident: Ident,
         param_map: ParamMap,
+        result_map: &[AttrMap],
     ) -> ::syn::Result<Arm> {
         let Variant {
             ident: variant_ident,
@@ -451,7 +466,9 @@ impl DispatchFn {
             },
         };
         let (pat, body) = match variant_fields {
-            Fields::Unit => self.unit_arm(variant_fields, path, variant_ident, param_map),
+            Fields::Unit => {
+                self.unit_arm(variant_fields, path, variant_ident, param_map, result_map)
+            }
             Fields::Named(FieldsNamed {
                 named: fields,
                 brace_token: token::Brace { span: delim_span },
@@ -486,7 +503,7 @@ impl DispatchFn {
                 // If no dispatch fields without ignore attribute are found, treat as unit variant.
                 // If multiple found throw an error.
                 match dispatch_field.as_slice() {
-                    [] => self.unit_arm(variant_fields, path, variant_ident, param_map),
+                    [] => self.unit_arm(variant_fields, path, variant_ident, param_map, result_map),
                     [dispatch_field] => self.field_arm(
                         dispatch_field,
                         path,
@@ -495,6 +512,7 @@ impl DispatchFn {
                         *delim_span,
                         idx + 1 == fields.len(),
                         param_map,
+                        result_map,
                     ),
                     [..] => {
                         return Err(::syn::Error::new(
@@ -570,13 +588,16 @@ impl DispatchFn {
                 .variants
                 .iter()
                 .map(|variant| {
-                    self.match_arm(ident, variant, this_ident.clone(), ParamMap(&mappings))
+                    self.match_arm(
+                        ident,
+                        variant,
+                        this_ident.clone(),
+                        ParamMap(&mappings),
+                        &result_map,
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         });
-        let expr = result_map
-            .into_iter()
-            .fold(expr, |expr, map| map.wrap_expr(expr));
 
         let mut stmts = Vec::with_capacity(mappings.len() + 1);
         stmts.push(Stmt::Expr(expr, None));
