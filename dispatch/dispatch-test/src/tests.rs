@@ -25,6 +25,12 @@ impl Second {
         0
     }
 })]
+#[dispatch(impl {
+    #[dispatch(map(Some))]
+    as opt_run fn <Self>::into_run(self) -> Option<u8> {
+        None
+    }
+})]
 enum Cases {
     First(First),
     Second {
