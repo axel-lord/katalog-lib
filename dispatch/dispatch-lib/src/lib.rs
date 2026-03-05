@@ -19,16 +19,8 @@ pub mod mono_closure;
 pub mod path_prefix;
 pub mod psuedo_closure;
 
+mod kw;
 mod util;
-mod kw {
-    //! Custom keywords.
-
-    use ::syn::custom_keyword;
-
-    custom_keyword!(ignore);
-    custom_keyword!(remap);
-    custom_keyword!(map);
-}
 
 /// Macro to implement dispatch.
 pub fn derive_dispatch(item: TokenStream) -> TokenStream {
