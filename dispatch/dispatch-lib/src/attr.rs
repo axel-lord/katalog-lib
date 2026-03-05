@@ -392,6 +392,8 @@ impl ToTokens for AttrMap {
 pub enum DispatchFnAttr {
     /// Remap parameters in function.
     Remap(AttrRemap),
+    /// Map result of calls.
+    Map(AttrMap),
 }
 
 impl Parse for DispatchFnAttr {
@@ -399,6 +401,8 @@ impl Parse for DispatchFnAttr {
         let lookahead = input.lookahead1();
         if lookahead.peek(kw::remap) {
             Ok(Self::Remap(input.parse()?))
+        } else if lookahead.peek(kw::map) {
+            Ok(Self::Map(input.parse()?))
         } else {
             Err(lookahead.error())
         }
@@ -409,6 +413,7 @@ impl ToTokens for DispatchFnAttr {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
             DispatchFnAttr::Remap(attr_remap) => attr_remap.to_tokens(tokens),
+            DispatchFnAttr::Map(attr_map) => attr_map.to_tokens(tokens),
         }
     }
 }

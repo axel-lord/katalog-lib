@@ -538,6 +538,7 @@ impl DispatchFn {
 
         let mut mappings = BTreeMap::new();
         let mut attrs = Vec::new();
+        let mut result_map = Vec::new();
 
         for attr in &self.attrs {
             if !attr.path().is_ident("dispatch") {
@@ -551,6 +552,7 @@ impl DispatchFn {
                         .into_iter()
                         .map(ParameterMapping::into_pair),
                 ),
+                DispatchFnAttr::Map(attr_map) => result_map.push(attr_map),
             }
         }
 
@@ -572,6 +574,9 @@ impl DispatchFn {
                 })
                 .collect::<Result<Vec<_>, _>>()?,
         });
+        let expr = result_map
+            .into_iter()
+            .fold(expr, |expr, map| map.wrap_expr(expr));
 
         let mut stmts = Vec::with_capacity(mappings.len() + 1);
         stmts.push(Stmt::Expr(expr, None));
