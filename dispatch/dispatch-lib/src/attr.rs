@@ -8,11 +8,12 @@ use ::syn::{
     parse::{Parse, ParseStream},
 };
 
-pub use self::{dispatch_attr::*, dispatch_fn_attr::*, field_attr::*};
+pub use self::{dispatch_attr::*, dispatch_fn_attr::*, field_attr::*, variant_attr::*};
 
 mod dispatch_attr;
 mod dispatch_fn_attr;
 mod field_attr;
+mod variant_attr;
 
 /// A named MetaList like attribute.
 #[derive(Clone)]
