@@ -26,7 +26,7 @@ use crate::{
 };
 
 /// Get ident by mapping.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 struct ParamMap<'a>(&'a BTreeMap<Ident, (Token![:], Ident)>);
 
 impl<'a> ParamMap<'a> {
