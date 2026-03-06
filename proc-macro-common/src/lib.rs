@@ -9,4 +9,5 @@ pub mod extension;
 pub mod last;
 pub mod lazy;
 pub mod lookahead_chain;
+pub mod span_conv;
 pub mod unpack;

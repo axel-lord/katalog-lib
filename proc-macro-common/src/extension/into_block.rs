@@ -3,19 +3,26 @@
 use ::proc_macro2::{Span, extra::DelimSpan};
 use ::syn::{Block, Stmt, StmtMacro, Token, token};
 
-use crate::extension::IntoStatement;
+use crate::{
+    extension::IntoStatement,
+    span_conv::{CallSite, GetSpan},
+};
 
 /// Trait to convert interators of statements into blocks.
 pub trait IntoBlock {
     /// Create a block using the given spans for delimiters and punctuation.
-    fn into_block(self, delim_span: DelimSpan, punct_span: impl FnMut() -> Span) -> Block;
+    fn into_block(
+        self,
+        delim_span: impl GetSpan<DelimSpan>,
+        punct_span: impl FnMut() -> Span,
+    ) -> Block;
 
     /// Create a block with call site spans for delimiters and punctuation.
     fn into_block_call_site(self) -> Block
     where
         Self: Sized,
     {
-        self.into_block(token::Brace(Span::call_site()).span, Span::call_site)
+        self.into_block(CallSite, Span::call_site)
     }
 }
 
@@ -24,7 +31,11 @@ where
     I: IntoIterator,
     I::Item: IntoStatement,
 {
-    fn into_block(self, delim_span: DelimSpan, mut punct_span: impl FnMut() -> Span) -> Block {
+    fn into_block(
+        self,
+        delim_span: impl GetSpan<DelimSpan>,
+        mut punct_span: impl FnMut() -> Span,
+    ) -> Block {
         let mut stmts = Vec::new();
 
         for stmt in self {
@@ -43,7 +54,9 @@ where
         }
 
         Block {
-            brace_token: token::Brace { span: delim_span },
+            brace_token: token::Brace {
+                span: delim_span.get_span(),
+            },
             stmts,
         }
     }
