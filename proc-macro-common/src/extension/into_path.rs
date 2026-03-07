@@ -1,8 +1,8 @@
 //! [IntoPath] impls.
 
-use ::syn::{Block, Expr, Pat, PatPath, Path, Stmt};
+use ::syn::{Expr, Pat, PatPath, Path};
 
-use crate::extension::{IntoDelimiterSpan, IntoExpression, IntoPattern};
+use crate::extension::{IntoExpression, IntoPattern};
 
 /// Convert a path into a pat path.
 const fn into_pat_path(path: Path) -> PatPath {
@@ -31,21 +31,6 @@ where
     /// Convert directly into an expression.
     fn into_expr(self) -> Expr {
         into_pat_path(self.into_path()).into_expr()
-    }
-
-    /// Convert directly into a statement.
-    fn into_stmt(self) -> Stmt {
-        self.into_expr().into_stmt()
-    }
-
-    /// Convert directly into a block.
-    fn into_block(self, delim_span: impl IntoDelimiterSpan) -> Block {
-        self.into_expr().into_block(delim_span)
-    }
-
-    /// Convert directly into a block, using call site for delim span.
-    fn into_block_call_site(self) -> Block {
-        self.into_expr().into_block_call_site()
     }
 }
 
