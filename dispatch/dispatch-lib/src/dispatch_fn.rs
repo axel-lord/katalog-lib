@@ -1,16 +1,19 @@
 //! Ast for fucntion templates.
 
+use ::core::iter::once;
 use ::std::collections::BTreeMap;
 
-use ::katalog_lib_proc_macro_common::{attr_writer, lookahead_chain::LookaheadChain};
+use ::katalog_lib_proc_macro_common::{
+    attr_writer, extension::prelude::*, lookahead_chain::LookaheadChain,
+};
 use ::proc_macro2::{Span, TokenStream, extra::DelimSpan};
 use ::quote::ToTokens;
 use ::syn::{
-    Arm, Attribute, Block, Expr, ExprAwait, ExprBlock, ExprCall, ExprMatch, ExprReference,
-    ExprTuple, Field, FieldPat, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItem,
-    ImplItemFn, ItemEnum, Local, LocalInit, Member, Pat, PatPath, PatRest, PatStruct,
-    PatTupleStruct, PatWild, Path, QSelf, ReturnType, Signature, Stmt, Token, Type, TypeTuple,
-    Variant, Visibility, WhereClause, braced,
+    Arm, Attribute, Block, Expr, ExprAwait, ExprCall, ExprMatch, ExprReference, ExprTuple, Field,
+    FieldPat, Fields, FieldsNamed, FieldsUnnamed, Generics, Ident, ImplItem, ImplItemFn, ItemEnum,
+    Local, LocalInit, Member, Pat, PatPath, PatRest, PatStruct, PatTupleStruct, PatWild, Path,
+    QSelf, ReturnType, Signature, Stmt, Token, Type, TypeTuple, Variant, Visibility, WhereClause,
+    braced,
     ext::IdentExt as _,
     parse::{Lookahead1, Parse, ParseStream},
     punctuated::{Pair, Punctuated},
@@ -195,37 +198,35 @@ impl DispatchFn {
             attrs: Vec::new(),
             func: Box::new(self.call_path(ty).into()),
             paren_token: *paren_token,
-            args: {
-                let mut args = Punctuated::new();
-                args.push(expr);
-
-                if let Some(infix_comma) = infix_comma {
-                    args.push_punct(*infix_comma);
-                    args.extend(parameters.pairs().map(|pair| {
-                        let (value, punct) = pair.into_tuple();
-                        let value = param_map.get(&value.ident);
-                        Pair::new(
-                            Expr::Path(PatPath {
-                                attrs: Vec::new(),
-                                qself: None,
-                                path: value.clone().into(),
-                            }),
-                            punct.copied(),
-                        )
-                    }));
-                }
-
-                args
-            },
+            args: once((expr, *infix_comma))
+                .chain(
+                    infix_comma
+                        .map(|_| {
+                            parameters
+                                .pairs()
+                                .map(Pair::into_tuple)
+                                .map(|(value, punct)| {
+                                    (
+                                        param_map.get(&value.ident).clone().into_path().into_expr(),
+                                        punct.copied(),
+                                    )
+                                })
+                        })
+                        .into_iter()
+                        .flatten(),
+                )
+                .map(|(expr, punct)| Pair::new(expr, punct))
+                .collect(),
         });
 
         let expr = if let Some(asyncness) = &self.asyncness {
-            Expr::from(ExprAwait {
+            ExprAwait {
                 attrs: Vec::new(),
                 base: Box::new(call),
                 dot_token: Token![.](asyncness.span),
                 await_token: Token![await](asyncness.span),
-            })
+            }
+            .into_expr()
         } else {
             call
         };
@@ -251,7 +252,7 @@ impl DispatchFn {
     ) -> (Pat, Box<Expr>) {
         let is_single = is_last && idx == 0;
         let pat = if let Some(ident) = &field.ident {
-            Pat::from(PatStruct {
+            PatStruct {
                 attrs: Vec::new(),
                 qself: None,
                 path,
@@ -263,11 +264,7 @@ impl DispatchFn {
                         attrs: Vec::new(),
                         member: Member::Named(ident.clone()),
                         colon_token: Some(Token![:](this_ident.span())),
-                        pat: Box::new(Pat::from(PatPath {
-                            attrs: Vec::new(),
-                            qself: None,
-                            path: Path::from(this_ident.clone()),
-                        })),
+                        pat: Box::new(this_ident.clone().into_pat()),
                     });
 
                     if !is_single {
@@ -284,9 +281,10 @@ impl DispatchFn {
                         dot2_token: Token![..](delim_span.close()),
                     })
                 },
-            })
+            }
+            .into_pat()
         } else {
-            Pat::from(PatTupleStruct {
+            PatTupleStruct {
                 attrs: Vec::new(),
                 qself: None,
                 path,
@@ -295,33 +293,41 @@ impl DispatchFn {
                     let mut punctuated = Punctuated::new();
                     let span = delim_span.open();
                     for _ in 0..idx {
-                        punctuated.push(Pat::from(PatWild {
-                            attrs: Vec::new(),
-                            underscore_token: Token![_](span),
-                        }));
+                        punctuated.push(
+                            PatWild {
+                                attrs: Vec::new(),
+                                underscore_token: Token![_](span),
+                            }
+                            .into_pat(),
+                        );
                         punctuated.push_punct(Token![,](span));
                     }
 
-                    punctuated.push(Pat::from(PatPath {
-                        attrs: Vec::new(),
-                        qself: None,
-                        path: Path::from(this_ident.clone()),
-                    }));
+                    punctuated.push(this_ident.clone().into_pat());
 
                     if !is_last {
                         let span = delim_span.close();
                         punctuated.push_punct(Token![,](span));
-                        punctuated.push(Pat::from(PatRest {
-                            attrs: Vec::new(),
-                            dot2_token: Token![..](span),
-                        }));
+                        punctuated.push(
+                            PatRest {
+                                attrs: Vec::new(),
+                                dot2_token: Token![..](span),
+                            }
+                            .into_pat(),
+                        );
                     }
 
                     punctuated
                 },
-            })
+            }
+            .into_pat()
         };
-        let expr = self.call(ident_to_expr(this_ident), &field.ty, param_map, result_map);
+        let expr = self.call(
+            this_ident.clone().into_expr(),
+            &field.ty,
+            param_map,
+            result_map,
+        );
         (pat, expr)
     }
 
@@ -335,7 +341,7 @@ impl DispatchFn {
         result_map: &[AttrMap],
     ) -> (Pat, Box<Expr>) {
         let pat = match fields {
-            Fields::Named(FieldsNamed { brace_token, .. }) => Pat::from(PatStruct {
+            Fields::Named(FieldsNamed { brace_token, .. }) => PatStruct {
                 attrs: Vec::new(),
                 qself: None,
                 path,
@@ -345,51 +351,54 @@ impl DispatchFn {
                     attrs: Vec::new(),
                     dot2_token: Token![..](brace_token.span.open()),
                 }),
-            }),
-            Fields::Unnamed(FieldsUnnamed { paren_token, .. }) => Pat::from(PatTupleStruct {
+            }
+            .into_pat(),
+            Fields::Unnamed(FieldsUnnamed { paren_token, .. }) => PatTupleStruct {
                 attrs: Vec::new(),
                 qself: None,
                 path,
                 paren_token: *paren_token,
-                elems: [Pat::from(PatRest {
-                    attrs: Vec::new(),
-                    dot2_token: Token![..](paren_token.span.open()),
-                })]
-                .into_iter()
-                .collect(),
-            }),
-            Fields::Unit => Pat::from(PatPath {
-                attrs: Vec::new(),
-                qself: None,
-                path,
-            }),
+                elems: once(
+                    PatRest {
+                        attrs: Vec::new(),
+                        dot2_token: Token![..](paren_token.span.open()),
+                    }
+                    .into_pat(),
+                )
+                .into_punctuated(Default::default),
+            }
+            .into_pat(),
+            Fields::Unit => path.into_pat(),
         };
         let expr = self
             .block
             .as_ref()
             .map(|block| {
-                Box::new(Expr::from(ExprBlock {
-                    attrs: Vec::new(),
-                    label: None,
-                    block: block.clone(),
-                }))
+                Box::new(
+                    block
+                        .stmts
+                        .clone()
+                        .into_block_expr(block.brace_token.span, Span::call_site),
+                )
             })
             .unwrap_or_else(|| {
                 self.call(
                     {
-                        let expr = Expr::from(ExprTuple {
+                        let expr = ExprTuple {
                             attrs: Vec::new(),
                             paren_token: token::Paren(variant_ident.span()),
                             elems: Punctuated::new(),
-                        });
+                        }
+                        .into_expr();
 
                         if let Some((reference, ..)) = &self.parameters.receiver.reference {
-                            Expr::from(ExprReference {
+                            ExprReference {
                                 attrs: Vec::new(),
                                 and_token: *reference,
                                 mutability: self.parameters.receiver.mutability,
                                 expr: Box::new(expr),
-                            })
+                            }
+                            .into_expr()
                         } else {
                             expr
                         }
@@ -604,25 +613,20 @@ impl DispatchFn {
 
         for (param, (colon_token, binding)) in &mappings {
             let span = colon_token.span;
-            stmts.push(Stmt::Local(Local {
-                attrs: Vec::new(),
-                let_token: Token![let](span),
-                pat: Pat::Path(PatPath {
+            stmts.push(
+                Local {
                     attrs: Vec::new(),
-                    qself: None,
-                    path: binding.clone().into(),
-                }),
-                init: Some(LocalInit {
-                    eq_token: Token![=](span),
-                    expr: Box::new(Expr::Path(PatPath {
-                        attrs: Vec::new(),
-                        qself: None,
-                        path: param.clone().into(),
-                    })),
-                    diverge: None,
-                }),
-                semi_token: Token![;](span),
-            }));
+                    let_token: Token![let](span),
+                    pat: binding.clone().into_pat(),
+                    init: Some(LocalInit {
+                        eq_token: Token![=](span),
+                        expr: Box::new(param.clone().into_expr()),
+                        diverge: None,
+                    }),
+                    semi_token: Token![;](span),
+                }
+                .into_stmt(),
+            );
         }
 
         let block = Block {
