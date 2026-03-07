@@ -1,9 +1,9 @@
-//! [IntoStatement] impls
+//! [IntoStatement] impls.
 
 use ::proc_macro2::Span;
 use ::syn::{Block, Expr, Item, Local, Macro, Stmt, StmtMacro, token};
 
-use crate::extension::IntoDelimSpan;
+use crate::extension::IntoDelimiterSpan;
 
 /// Convert valid items into statements.
 pub trait IntoStatement {
@@ -11,7 +11,7 @@ pub trait IntoStatement {
     fn into_statement(self) -> Stmt;
 
     /// Convert value directly into a block.
-    fn into_block(self, delim_span: impl IntoDelimSpan) -> Block
+    fn into_block(self, delim_span: impl IntoDelimiterSpan) -> Block
     where
         Self: Sized,
     {
@@ -23,7 +23,7 @@ pub trait IntoStatement {
         }
     }
 
-    /// Convert value directly into a block using call site for delim span.
+    /// Convert value directly into a block, using call site for delim span.
     fn into_block_call_site(self) -> Block
     where
         Self: Sized,

@@ -4,12 +4,12 @@ use ::proc_macro2::{Delimiter, Group, Span, TokenStream, extra::DelimSpan};
 use ::syn::token;
 
 /// Convert values into [DelimSpan].
-pub trait IntoDelimSpan {
+pub trait IntoDelimiterSpan {
     /// Convert self into a [DelimSpan].
     fn into_delim_span(self) -> DelimSpan;
 }
 
-impl IntoDelimSpan for Span {
+impl IntoDelimiterSpan for Span {
     fn into_delim_span(self) -> DelimSpan {
         let mut group = Group::new(Delimiter::None, TokenStream::default());
         group.set_span(self);
@@ -17,43 +17,43 @@ impl IntoDelimSpan for Span {
     }
 }
 
-impl IntoDelimSpan for DelimSpan {
+impl IntoDelimiterSpan for DelimSpan {
     fn into_delim_span(self) -> DelimSpan {
         self
     }
 }
 
-impl IntoDelimSpan for &Span {
+impl IntoDelimiterSpan for &Span {
     fn into_delim_span(self) -> DelimSpan {
         Span::into_delim_span(*self)
     }
 }
 
-impl IntoDelimSpan for &mut Span {
+impl IntoDelimiterSpan for &mut Span {
     fn into_delim_span(self) -> DelimSpan {
         Span::into_delim_span(*self)
     }
 }
 
-impl IntoDelimSpan for &DelimSpan {
+impl IntoDelimiterSpan for &DelimSpan {
     fn into_delim_span(self) -> DelimSpan {
         *self
     }
 }
 
-impl IntoDelimSpan for &mut DelimSpan {
+impl IntoDelimiterSpan for &mut DelimSpan {
     fn into_delim_span(self) -> DelimSpan {
         *self
     }
 }
 
-impl IntoDelimSpan for Group {
+impl IntoDelimiterSpan for Group {
     fn into_delim_span(self) -> DelimSpan {
         self.delim_span()
     }
 }
 
-impl IntoDelimSpan for &Group {
+impl IntoDelimiterSpan for &Group {
     fn into_delim_span(self) -> DelimSpan {
         self.delim_span()
     }
@@ -63,12 +63,12 @@ impl IntoDelimSpan for &Group {
 macro_rules! delim_impl {
     ($($delim:path),+) => {
         $(
-        impl IntoDelimSpan for $delim {
+        impl IntoDelimiterSpan for $delim {
             fn into_delim_span(self) -> DelimSpan {
                 self.span
             }
         }
-        impl IntoDelimSpan for &$delim {
+        impl IntoDelimiterSpan for &$delim {
             fn into_delim_span(self) -> DelimSpan {
                 self.span
             }
