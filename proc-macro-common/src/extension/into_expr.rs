@@ -15,8 +15,8 @@ where
     }
 
     /// Convert directly into a statement.
-    fn into_statement(self) -> Stmt {
-        IntoStatement::into_statement(self.into_expr())
+    fn into_stmt(self) -> Stmt {
+        IntoStatement::into_stmt(self.into_expr())
     }
 
     /// Convert directly into a block.

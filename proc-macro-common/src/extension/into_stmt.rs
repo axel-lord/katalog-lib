@@ -8,7 +8,7 @@ use crate::extension::IntoDelimiterSpan;
 /// Convert valid items into statements.
 pub trait IntoStatement {
     /// Convert value into a statement.
-    fn into_statement(self) -> Stmt;
+    fn into_stmt(self) -> Stmt;
 
     /// Convert value directly into a block.
     fn into_block(self, delim_span: impl IntoDelimiterSpan) -> Block
@@ -19,7 +19,7 @@ pub trait IntoStatement {
             brace_token: token::Brace {
                 span: delim_span.into_delim_span(),
             },
-            stmts: Vec::from_iter([self.into_statement()]),
+            stmts: Vec::from_iter([self.into_stmt()]),
         }
     }
 
@@ -33,13 +33,13 @@ pub trait IntoStatement {
 }
 
 impl IntoStatement for StmtMacro {
-    fn into_statement(self) -> Stmt {
+    fn into_stmt(self) -> Stmt {
         Stmt::Macro(self)
     }
 }
 
 impl IntoStatement for Macro {
-    fn into_statement(self) -> Stmt {
+    fn into_stmt(self) -> Stmt {
         Stmt::Macro(StmtMacro {
             attrs: Vec::new(),
             mac: self,
@@ -49,25 +49,25 @@ impl IntoStatement for Macro {
 }
 
 impl IntoStatement for Local {
-    fn into_statement(self) -> Stmt {
+    fn into_stmt(self) -> Stmt {
         Stmt::Local(self)
     }
 }
 
 impl IntoStatement for Item {
-    fn into_statement(self) -> Stmt {
+    fn into_stmt(self) -> Stmt {
         Stmt::Item(self)
     }
 }
 
 impl IntoStatement for Expr {
-    fn into_statement(self) -> Stmt {
+    fn into_stmt(self) -> Stmt {
         Stmt::Expr(self, None)
     }
 }
 
 impl IntoStatement for Stmt {
-    fn into_statement(self) -> Stmt {
+    fn into_stmt(self) -> Stmt {
         self
     }
 }
@@ -76,7 +76,7 @@ impl<T> IntoStatement for Box<T>
 where
     T: IntoStatement,
 {
-    fn into_statement(self) -> Stmt {
-        (*self).into_statement()
+    fn into_stmt(self) -> Stmt {
+        (*self).into_stmt()
     }
 }
