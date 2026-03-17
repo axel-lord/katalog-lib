@@ -52,7 +52,7 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
                     generics,
                     self_token: _,
                     brace_token,
-                    functions,
+                    items,
                 }) => {
                     let impl_block = ItemImpl {
                         attrs,
@@ -66,11 +66,12 @@ fn dispatch(item: TokenStream) -> ::syn::Result<TokenStream> {
                             path: Path::from(item_enum.ident.clone()),
                         })),
                         brace_token,
-                        items: errors.collect(
-                            functions
-                                .into_iter()
-                                .map(|function| function.to_item(&item_enum)),
-                        ),
+                        items: errors.collect(items.into_iter().map(|item| match item {
+                            attr::ImplAttrItem::ImplItem(impl_item) => Ok(impl_item),
+                            attr::ImplAttrItem::DispatchFn(dispatch_fn) => {
+                                dispatch_fn.to_item(&item_enum)
+                            }
+                        })),
                     };
                     impl_blocks.push(impl_block);
                 }
