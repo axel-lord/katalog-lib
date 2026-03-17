@@ -21,13 +21,13 @@ impl Second {
 
 #[derive(Debug, Dispatch)]
 #[dispatch(impl {
-    fn <Self>::into_run(self) -> u8 {
+    dispatch fn <Self>::into_run(self) -> u8 {
         0
     }
 })]
 #[dispatch(impl {
     #[dispatch(map(Some))]
-    as opt_run fn <Self>::into_run(self) -> Option<u8> {
+    dispatch as opt_run fn <Self>::into_run(self) -> Option<u8> {
         None
     }
 })]
@@ -45,7 +45,7 @@ enum Cases {
 
 #[derive(Dispatch)]
 #[dispatch(impl {
-    for<T> as run1 fn run(self) {
+    dispatch for<T> as run1 fn run(self) {
         ()
     }
 })]

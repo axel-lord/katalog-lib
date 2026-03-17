@@ -24,6 +24,7 @@ use ::syn::{
 use crate::{
     attr::{AttrMap, DispatchFnAttr, FieldAttr, FieldAttrInner, ParameterMapping},
     dispatch_parameter::DispatchParameters,
+    kw,
     path_prefix::{PathPrefix, Qualified},
     util::ident_to_expr,
 };
@@ -44,6 +45,9 @@ impl<'a> ParamMap<'a> {
 pub struct DispatchFn {
     /// Function attributes.
     pub attrs: Vec<Attribute>,
+
+    /// Optional dispatch keyword, required in some contexts.
+    pub dispatch: Option<kw::dispatch>,
 
     /// 'for' token signaling generics.
     pub for_token: Option<Token![for]>,
@@ -90,7 +94,8 @@ impl DispatchFn {
     /// # Tokens
     /// `for, as, pub, const, async, fn`
     pub fn peek_prefix(lookahead: &Lookahead1) -> bool {
-        lookahead.peek(Token![for])
+        lookahead.peek(kw::dispatch)
+            || lookahead.peek(Token![for])
             || lookahead.peek(Token![as])
             || lookahead.peek(Token![pub])
             || lookahead.peek(Token![const])
@@ -648,6 +653,7 @@ impl ToTokens for DispatchFn {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let Self {
             attrs,
+            dispatch,
             for_token,
             generics,
             as_token,
@@ -665,6 +671,7 @@ impl ToTokens for DispatchFn {
         } = self;
 
         attrs.iter().for_each(attr_writer::outer(tokens));
+        dispatch.to_tokens(tokens);
         for_token.to_tokens(tokens);
         generics.to_tokens(tokens);
         if let Some(as_token) = as_token {
@@ -688,31 +695,39 @@ impl ToTokens for DispatchFn {
 impl Parse for DispatchFn {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let attrs = input.call(Attribute::parse_outer)?;
-        let ((for_token, mut generics), (as_token, ident), vis, constness, asyncness, fn_token) =
-            input
-                .lookahead1()
-                .chain_with_or_default(input, Token![for], |input| {
-                    let for_token = input.parse::<Option<Token![for]>>()?;
+        let (
+            dispatch,
+            (for_token, mut generics),
+            (as_token, ident),
+            vis,
+            constness,
+            asyncness,
+            fn_token,
+        ) = input
+            .lookahead1()
+            .chain::<kw::dispatch>(input, kw::dispatch)?
+            .chain_with_or_default(input, Token![for], |input| {
+                let for_token = input.parse::<Option<Token![for]>>()?;
 
-                    if !input.peek(Token![<]) {
-                        return Err(input.error("expected '<' after for"));
-                    }
+                if !input.peek(Token![<]) {
+                    return Err(input.error("expected '<' after for"));
+                }
 
-                    let generics = input.parse::<Generics>()?;
+                let generics = input.parse::<Generics>()?;
 
-                    Ok((for_token, generics))
-                })?
-                .chain_with_or_default(input, Token![as], |input| {
-                    let as_token = input.parse::<Option<Token![as]>>()?;
-                    let ident = Some(input.parse::<Ident>()?);
-                    Ok((as_token, ident))
-                })?
-                .chain_with_or(input, Token![pub], Visibility::parse, || {
-                    Visibility::Inherited
-                })?
-                .chain::<Token![const]>(input, Token![const])?
-                .chain::<Token![async]>(input, Token![async])?
-                .finish::<Token![fn]>(input, Token![fn])?;
+                Ok((for_token, generics))
+            })?
+            .chain_with_or_default(input, Token![as], |input| {
+                let as_token = input.parse::<Option<Token![as]>>()?;
+                let ident = Some(input.parse::<Ident>()?);
+                Ok((as_token, ident))
+            })?
+            .chain_with_or(input, Token![pub], Visibility::parse, || {
+                Visibility::Inherited
+            })?
+            .chain::<Token![const]>(input, Token![const])?
+            .chain::<Token![async]>(input, Token![async])?
+            .finish::<Token![fn]>(input, Token![fn])?;
 
         let leading_colon;
         let lookahead = input.lookahead1();
@@ -800,6 +815,7 @@ impl Parse for DispatchFn {
 
         Ok(Self {
             attrs,
+            dispatch,
             for_token,
             generics,
             as_token,
