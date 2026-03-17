@@ -8,6 +8,7 @@ use ::quote::ToTokens;
 use ::syn::{
     Attribute, Generics, ImplItem, Token, braced,
     parse::{Parse, ParseStream},
+    punctuated::Punctuated,
     token,
 };
 
@@ -15,14 +16,22 @@ use ::syn::{
 #[derive(Clone)]
 pub enum DispatchAttr {
     /// Impl block attribute.
-    Impl(ImplAttr),
+    Impls(Punctuated<ImplAttr, Token![,]>),
+    /// Bare dispatch functions.
+    Dispatches(Vec<DispatchFn>),
 }
 
 impl Parse for DispatchAttr {
     fn parse(input: ParseStream) -> ::syn::Result<Self> {
         let lookahead = input.lookahead1();
         if lookahead.peek(Token![impl]) {
-            Ok(DispatchAttr::Impl(input.parse()?))
+            input.call(Punctuated::parse_terminated).map(Self::Impls)
+        } else if DispatchFn::peek_prefix(&lookahead) {
+            let mut dispatches = Vec::new();
+            while !input.is_empty() {
+                dispatches.push(input.parse()?);
+            }
+            Ok(Self::Dispatches(dispatches))
         } else {
             Err(lookahead.error())
         }
