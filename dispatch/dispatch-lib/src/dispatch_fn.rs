@@ -22,7 +22,7 @@ use ::syn::{
 };
 
 use crate::{
-    attr::{AttrMap, DispatchFnAttr, FieldAttr, FieldAttrInner, ParameterMapping},
+    attr::{AttrMap, DispatchFnAttr, FieldAttr, FieldAttrInner, ParameterMapping, VariantAttr},
     dispatch_parameter::DispatchParameters,
     kw,
     path_prefix::{PathPrefix, Qualified},
@@ -466,8 +466,39 @@ impl DispatchFn {
         let Variant {
             ident: variant_ident,
             fields: variant_fields,
+            attrs,
             ..
         } = variant;
+
+        let mut is_default = false;
+        for attr in attrs {
+            if !attr.path().is_ident("dispatch") {
+                continue;
+            }
+
+            let attr =
+                attr.parse_args_with(Punctuated::<VariantAttr, Token![,]>::parse_terminated)?;
+
+            for attr in attr {
+                match attr {
+                    VariantAttr::Inner(variant_attr_inner) => match variant_attr_inner {
+                        crate::attr::VariantAttrInner::Default(_) => is_default = false,
+                    },
+                    VariantAttr::Named(named_attr) if &named_attr.name == ident => {
+                        for attr in named_attr
+                            .content
+                            .content
+                            .try_into_parsed_with(Punctuated::parse_terminated)?
+                        {
+                            match attr {
+                                crate::attr::VariantAttrInner::Default(_) => is_default = true,
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         let path = Path {
             leading_colon: None,
@@ -481,6 +512,9 @@ impl DispatchFn {
         };
         let (pat, body) = match variant_fields {
             Fields::Unit => {
+                self.unit_arm(variant_fields, path, variant_ident, param_map, result_map)
+            }
+            _ if is_default => {
                 self.unit_arm(variant_fields, path, variant_ident, param_map, result_map)
             }
             Fields::Named(FieldsNamed {
