@@ -19,6 +19,7 @@ default-members = ["katalog-lib"]
 edition = "2024"
 authors = ["Axel Lord"]
 license = "MIT OR Apache-2.0"
+version = "0.1.1"
 
 [workspace.lints.rust]
 missing_docs = "warn"

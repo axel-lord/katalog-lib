@@ -1,9 +1,9 @@
 [package]
 name = "katalog-lib-proc-macro-common"
-version = "0.1.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+version.workspace = true
 
 [dependencies]
 proc-macro2.workspace = true
