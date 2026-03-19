@@ -14,6 +14,7 @@ use ::derive_more::{From, Into};
 use ::iced_core::{Theme, theme::Base};
 use ::katalog_lib_traits::PartialVariants;
 use ::serde::{Deserialize, Serialize};
+use ::unicode_normalization::UnicodeNormalization;
 
 /// Uppercase equality.
 fn uc_eq(a: &str, b: &str) -> bool {
@@ -41,6 +42,7 @@ static THEMES: LazyLock<HashMap<Discriminant<Theme>, Thm>> = LazyLock::new(|| {
             .chars()
             .map(|chr| if chr.is_whitespace() { '-' } else { chr })
             .flat_map(|chr| chr.to_lowercase())
+            .nfd()
             .filter(|chr| chr.is_ascii())
             .collect();
 
