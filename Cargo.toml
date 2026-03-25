@@ -11,7 +11,7 @@ members = [
 	"reflect/derive-lib",
 	"traits",
 	"widget"
-]
+, "settings"]
 resolver = "2"
 default-members = ["katalog-lib"]
 

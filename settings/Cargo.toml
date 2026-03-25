@@ -1,0 +1,11 @@
+[package]
+name = "katalog-lib-settings"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
