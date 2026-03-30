@@ -1,6 +1,8 @@
 //! [Setting] impl.
 use ::core::{any::type_name, borrow::Borrow, fmt::Debug, hash::Hash};
 
+use crate::{Primitive, SettingsError};
+
 /// Key to resolve a setting.
 pub struct Setting<'lt, T: 'static, R: 'lt = T> {
     /// Default value of setting, used when not set.
@@ -27,6 +29,10 @@ pub struct Setting<'lt, T: 'static, R: 'lt = T> {
     /// Aquire possible values for setting, if empty values are not
     /// restricted by set.
     pub possible_values: fn() -> &'static [T],
+
+    /// Function responsible for converting from settings primitives to
+    /// this setting.
+    pub try_from_primitive: fn(Primitive) -> Result<T, SettingsError>,
 }
 
 impl<'lt, T: 'static, R> Setting<'lt, T, R> {
