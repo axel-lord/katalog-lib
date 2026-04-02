@@ -2,16 +2,16 @@
 
 use ::core::{borrow::Borrow, str::FromStr};
 
-use crate::{Primitive, Setting, SettingsError, StdSetting};
+use crate::{Primitive, RefSetting, SettingsError, StdSetting};
 
 /// Construct a setting using implementations of traits
 /// from the standard library.
-pub const fn standard<'lt, R>(path: fn() -> &'static str) -> StdSetting<'lt, R>
+pub const fn standard<R>(path: fn() -> &'static str) -> StdSetting<R>
 where
-    R: 'static + ToOwned + ?Sized,
+    R: ToOwned + ?Sized,
     R::Owned: 'static + Default + FromStr + ToString,
 {
-    Setting {
+    RefSetting {
         default: <R::Owned as Default>::default,
         to_ref: <R::Owned as Borrow<R>>::borrow,
         path,
@@ -22,11 +22,11 @@ where
 }
 
 /// Construct a setting for string values.
-pub const fn string<'lt>(
+pub const fn string(
     path: fn() -> &'static str,
     default: fn() -> String,
-) -> StdSetting<'lt, str> {
-    Setting {
+) -> RefSetting<String, str> {
+    RefSetting {
         default,
         to_ref: String::borrow,
         path,
@@ -35,10 +35,10 @@ pub const fn string<'lt>(
         to_primitive: |_| Primitive::Null,
     }
 }
-
+/*
 /// Construct a boolean setting with given default value.
-pub const fn boolean(path: fn() -> &'static str, default: bool) -> Setting<'static, bool> {
-    Setting {
+pub const fn boolean(path: fn() -> &'static str, default: bool) -> RefSetting<bool> {
+    RefSetting {
         default: if default { || true } else { || false },
         to_ref: |b| *b,
         path,
@@ -47,3 +47,4 @@ pub const fn boolean(path: fn() -> &'static str, default: bool) -> Setting<'stat
         to_primitive: |_| Primitive::Null,
     }
 }
+*/

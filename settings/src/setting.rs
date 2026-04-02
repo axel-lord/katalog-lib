@@ -4,7 +4,7 @@ use ::core::{any::type_name, borrow::Borrow, fmt::Debug, hash::Hash};
 use crate::{Primitive, SettingsError};
 
 /// Key to resolve a setting.
-pub struct Setting<'lt, T: 'static, R: 'lt = T> {
+pub struct RefSetting<T: 'static, R: ?Sized> {
     /// Default value of setting, used when not set.
     pub default: fn() -> T,
 
@@ -12,7 +12,7 @@ pub struct Setting<'lt, T: 'static, R: 'lt = T> {
     ///
     /// Allows for situations such as
     /// copying/cloning where cheap.
-    pub to_ref: fn(&'lt T) -> R,
+    pub to_ref: for<'a> fn(&'a T) -> &'a R,
 
     /// Path of setting in store.
     ///
@@ -34,10 +34,10 @@ pub struct Setting<'lt, T: 'static, R: 'lt = T> {
     pub try_from_primitive: fn(Primitive) -> Result<T, SettingsError>,
 
     /// Convert to settings primitive.
-    pub to_primitive: fn(R) -> Primitive,
+    pub to_primitive: fn(&R) -> Primitive,
 }
 
-impl<'lt, T: 'static, R> Setting<'lt, T, R> {
+impl<T: 'static, R: ?Sized> RefSetting<T, R> {
     /// Get default value of setting.
     pub fn default(self) -> T {
         let Self { default, .. } = self;
@@ -46,7 +46,7 @@ impl<'lt, T: 'static, R> Setting<'lt, T, R> {
 
     /// Convert a reference to value
     /// to an instance of `R`.
-    pub fn to_ref(self, value: &'lt T) -> R {
+    pub fn to_ref(self, value: &T) -> &R {
         let Self { to_ref, .. } = self;
         to_ref(value)
     }
@@ -77,59 +77,59 @@ impl<'lt, T: 'static, R> Setting<'lt, T, R> {
     }
 
     /// Convert to a primitive setting.
-    pub fn to_primitive(self, value: R) -> Primitive {
+    pub fn to_primitive(self, value: &R) -> Primitive {
         let Self { to_primitive, .. } = self;
         to_primitive(value)
     }
 }
 
-impl<T: 'static, R> Borrow<str> for Setting<'_, T, R> {
+impl<T: 'static, R: ?Sized> Borrow<str> for RefSetting<T, R> {
     fn borrow(&self) -> &str {
         self.path()
     }
 }
 
-impl<T: 'static, R> AsRef<str> for Setting<'_, T, R> {
+impl<T: 'static, R: ?Sized> AsRef<str> for RefSetting<T, R> {
     fn as_ref(&self) -> &str {
         self.path()
     }
 }
 
-impl<T: 'static, R> Eq for Setting<'_, T, R> {}
+impl<T: 'static, R: ?Sized> Eq for RefSetting<T, R> {}
 
-impl<T: 'static, R, S: AsRef<str>> PartialEq<S> for Setting<'_, T, R> {
+impl<T: 'static, R: ?Sized, S: AsRef<str>> PartialEq<S> for RefSetting<T, R> {
     fn eq(&self, other: &S) -> bool {
         self.path().eq(other.as_ref())
     }
 }
 
-impl<T: 'static, R, S: AsRef<str>> PartialOrd<S> for Setting<'_, T, R> {
+impl<T: 'static, R: ?Sized, S: AsRef<str>> PartialOrd<S> for RefSetting<T, R> {
     fn partial_cmp(&self, other: &S) -> Option<::core::cmp::Ordering> {
         Some(self.path().cmp(other.as_ref()))
     }
 }
 
-impl<T: 'static, R> Ord for Setting<'_, T, R> {
+impl<T: 'static, R: ?Sized> Ord for RefSetting<T, R> {
     fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
         self.path().cmp(other.path())
     }
 }
 
-impl<T: 'static, R> Hash for Setting<'_, T, R> {
+impl<T: 'static, R: ?Sized> Hash for RefSetting<T, R> {
     fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
         self.path().hash(state);
     }
 }
 
-impl<T: 'static, R> Clone for Setting<'_, T, R> {
+impl<T: 'static, R: ?Sized> Clone for RefSetting<T, R> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T: 'static, R> Copy for Setting<'_, T, R> {}
+impl<T: 'static, R: ?Sized> Copy for RefSetting<T, R> {}
 
-impl<T: 'static, R> Debug for Setting<'_, T, R> {
+impl<T: 'static, R: ?Sized> Debug for RefSetting<T, R> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_struct("Setting")
             .field("T", &type_name::<T>())
