@@ -4,6 +4,7 @@ use ::core::{
     error::Error,
     fmt::{Debug, Display},
 };
+use ::std::borrow::Cow;
 
 /// Error type returned by settings handling.
 pub struct SettingsError {
@@ -32,6 +33,12 @@ impl SettingsError {
     /// Create an unknown error.
     pub const fn unknown() -> Self {
         Self { err: None }
+    }
+
+    /// Wrap an error with a message.
+    pub fn wrapped(msg: Cow<'static, str>, err: impl Error) -> Self {
+        _ = (msg, err);
+        todo!()
     }
 
     /// Get reference to underlying error, if any.

@@ -8,6 +8,9 @@ pub use self::{
 pub mod factory;
 pub mod io;
 
+#[cfg(feature = "cached")]
+pub mod cached;
+
 mod error;
 mod primitive;
 mod ref_setting;
