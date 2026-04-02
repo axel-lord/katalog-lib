@@ -2,7 +2,7 @@
 
 use ::core::{borrow::Borrow, str::FromStr};
 
-use crate::{Primitive, RefSetting, SettingsError, StdSetting};
+use crate::{Primitive, Setting, SettingsError, StdSetting};
 
 /// Construct a setting using implementations of traits
 /// from the standard library.
@@ -11,40 +11,38 @@ where
     R: ToOwned + ?Sized,
     R::Owned: 'static + Default + FromStr + ToString,
 {
-    RefSetting {
-        default: <R::Owned as Default>::default,
+    StdSetting {
+        setting: Setting {
+            default: <R::Owned as Default>::default,
+            path,
+            possible_values: || &[],
+            try_from_primitive: |_| Err(SettingsError::unknown()),
+            to_primitive: |_| Primitive::Null,
+        },
         to_ref: <R::Owned as Borrow<R>>::borrow,
-        path,
-        possible_values: || &[],
-        try_from_primitive: |_| Err(SettingsError::unknown()),
-        to_primitive: |_| Primitive::Null,
     }
 }
 
 /// Construct a setting for string values.
-pub const fn string(
-    path: fn() -> &'static str,
-    default: fn() -> String,
-) -> RefSetting<String, str> {
-    RefSetting {
-        default,
+pub const fn string(path: fn() -> &'static str, default: fn() -> String) -> StdSetting<str> {
+    StdSetting {
+        setting: Setting {
+            default,
+            path,
+            possible_values: || &[],
+            try_from_primitive: |_| Err(SettingsError::unknown()),
+            to_primitive: |_| Primitive::Null,
+        },
         to_ref: String::borrow,
-        path,
-        possible_values: || &[],
-        try_from_primitive: |_| Err(SettingsError::unknown()),
-        to_primitive: |_| Primitive::Null,
     }
 }
-/*
 /// Construct a boolean setting with given default value.
-pub const fn boolean(path: fn() -> &'static str, default: bool) -> RefSetting<bool> {
-    RefSetting {
+pub const fn boolean(path: fn() -> &'static str, default: bool) -> Setting<bool> {
+    Setting {
         default: if default { || true } else { || false },
-        to_ref: |b| *b,
         path,
         possible_values: || &[true, false],
         try_from_primitive: |_| Err(SettingsError::unknown()),
         to_primitive: |_| Primitive::Null,
     }
 }
-*/

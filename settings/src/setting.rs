@@ -3,16 +3,20 @@ use ::core::{any::type_name, borrow::Borrow, fmt::Debug, hash::Hash};
 
 use crate::{Primitive, SettingsError};
 
-/// Key to resolve a setting.
-pub struct RefSetting<T: 'static, R: ?Sized> {
+/// Description of a setting.
+pub struct Setting<T: 'static> {
     /// Default value of setting, used when not set.
     pub default: fn() -> T,
 
-    /// Get cheap reference like type.
-    ///
-    /// Allows for situations such as
-    /// copying/cloning where cheap.
-    pub to_ref: for<'a> fn(&'a T) -> &'a R,
+    /// Aquire possible values for setting, if empty values are not
+    /// restricted by set.
+    pub possible_values: fn() -> &'static [T],
+
+    /// Convert from settings primitives to this setting.
+    pub try_from_primitive: fn(Primitive) -> Result<T, SettingsError>,
+
+    /// Convert to settings primitive.
+    pub to_primitive: fn(&T) -> Primitive,
 
     /// Path of setting in store.
     ///
@@ -25,30 +29,13 @@ pub struct RefSetting<T: 'static, R: ?Sized> {
     /// as such two settings may have different types, but as long as
     /// they have the same path they are considered equal.
     pub path: fn() -> &'static str,
-
-    /// Aquire possible values for setting, if empty values are not
-    /// restricted by set.
-    pub possible_values: fn() -> &'static [T],
-
-    /// Convert from settings primitives to this setting.
-    pub try_from_primitive: fn(Primitive) -> Result<T, SettingsError>,
-
-    /// Convert to settings primitive.
-    pub to_primitive: fn(&R) -> Primitive,
 }
 
-impl<T: 'static, R: ?Sized> RefSetting<T, R> {
+impl<T: 'static> Setting<T> {
     /// Get default value of setting.
     pub fn default(self) -> T {
         let Self { default, .. } = self;
         default()
-    }
-
-    /// Convert a reference to value
-    /// to an instance of `R`.
-    pub fn to_ref(self, value: &T) -> &R {
-        let Self { to_ref, .. } = self;
-        to_ref(value)
     }
 
     /// Get setting path.
@@ -77,64 +64,69 @@ impl<T: 'static, R: ?Sized> RefSetting<T, R> {
     }
 
     /// Convert to a primitive setting.
-    pub fn to_primitive(self, value: &R) -> Primitive {
+    pub fn to_primitive(self, value: &T) -> Primitive {
         let Self { to_primitive, .. } = self;
         to_primitive(value)
     }
 }
 
-impl<T: 'static, R: ?Sized> Borrow<str> for RefSetting<T, R> {
-    fn borrow(&self) -> &str {
-        self.path()
-    }
-}
-
-impl<T: 'static, R: ?Sized> AsRef<str> for RefSetting<T, R> {
-    fn as_ref(&self) -> &str {
-        self.path()
-    }
-}
-
-impl<T: 'static, R: ?Sized> Eq for RefSetting<T, R> {}
-
-impl<T: 'static, R: ?Sized, S: AsRef<str>> PartialEq<S> for RefSetting<T, R> {
+impl<T: 'static, S: AsRef<str>> PartialEq<S> for Setting<T> {
     fn eq(&self, other: &S) -> bool {
         self.path().eq(other.as_ref())
     }
 }
 
-impl<T: 'static, R: ?Sized, S: AsRef<str>> PartialOrd<S> for RefSetting<T, R> {
+impl<T: 'static, S: AsRef<str>> PartialOrd<S> for Setting<T> {
     fn partial_cmp(&self, other: &S) -> Option<::core::cmp::Ordering> {
         Some(self.path().cmp(other.as_ref()))
     }
 }
 
-impl<T: 'static, R: ?Sized> Ord for RefSetting<T, R> {
+impl<T: 'static> Eq for Setting<T> {}
+
+impl<T: 'static> Ord for Setting<T> {
     fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
         self.path().cmp(other.path())
     }
 }
 
-impl<T: 'static, R: ?Sized> Hash for RefSetting<T, R> {
+impl<T: 'static> Hash for Setting<T> {
     fn hash<H: ::core::hash::Hasher>(&self, state: &mut H) {
         self.path().hash(state);
     }
 }
 
-impl<T: 'static, R: ?Sized> Clone for RefSetting<T, R> {
-    fn clone(&self) -> Self {
-        *self
+impl<T: 'static> Borrow<str> for Setting<T> {
+    fn borrow(&self) -> &str {
+        self.path()
     }
 }
 
-impl<T: 'static, R: ?Sized> Copy for RefSetting<T, R> {}
+impl<T: 'static> AsRef<str> for Setting<T> {
+    fn as_ref(&self) -> &str {
+        self.path()
+    }
+}
 
-impl<T: 'static, R: ?Sized> Debug for RefSetting<T, R> {
+impl<T: 'static> AsRef<Setting<T>> for Setting<T> {
+    fn as_ref(&self) -> &Setting<T> {
+        self
+    }
+}
+
+impl<T: 'static> Debug for Setting<T> {
     fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
         f.debug_struct("Setting")
             .field("T", &type_name::<T>())
-            .field("R", &type_name::<R>())
             .field("path", &(self.path)())
             .finish()
+    }
+}
+
+impl<T: 'static> Copy for Setting<T> {}
+
+impl<T: 'static> Clone for Setting<T> {
+    fn clone(&self) -> Self {
+        *self
     }
 }
