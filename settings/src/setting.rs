@@ -30,9 +30,11 @@ pub struct Setting<'lt, T: 'static, R: 'lt = T> {
     /// restricted by set.
     pub possible_values: fn() -> &'static [T],
 
-    /// Function responsible for converting from settings primitives to
-    /// this setting.
+    /// Convert from settings primitives to this setting.
     pub try_from_primitive: fn(Primitive) -> Result<T, SettingsError>,
+
+    /// Convert to settings primitive.
+    pub to_primitive: fn(R) -> Primitive,
 }
 
 impl<'lt, T: 'static, R> Setting<'lt, T, R> {
@@ -61,6 +63,23 @@ impl<'lt, T: 'static, R> Setting<'lt, T, R> {
             possible_values, ..
         } = self;
         possible_values()
+    }
+
+    /// Convert a primitive settings value to this setting.
+    ///
+    /// # Errors
+    /// If given primitive cannot be converted to this setting.
+    pub fn try_from_primitive(self, primitive: Primitive) -> Result<T, SettingsError> {
+        let Self {
+            try_from_primitive, ..
+        } = self;
+        try_from_primitive(primitive)
+    }
+
+    /// Convert to a primitive setting.
+    pub fn to_primitive(self, value: R) -> Primitive {
+        let Self { to_primitive, .. } = self;
+        to_primitive(value)
     }
 }
 

@@ -5,7 +5,12 @@ authors.workspace = true
 license.workspace = true
 version.workspace = true
 
+[features]
+default = ["provider"]
+provider = ["bytemuck/derive"]
+
 [dependencies]
+bytemuck = { version = "1.25.0", optional = true }
 
 [lints]
 workspace = true

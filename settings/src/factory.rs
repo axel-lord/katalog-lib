@@ -2,7 +2,7 @@
 
 use ::core::{borrow::Borrow, str::FromStr};
 
-use crate::{Setting, SettingsError, StdSetting};
+use crate::{Primitive, Setting, SettingsError, StdSetting};
 
 /// Construct a setting using implementations of traits
 /// from the standard library.
@@ -17,6 +17,7 @@ where
         path,
         possible_values: || &[],
         try_from_primitive: |_| Err(SettingsError::unknown()),
+        to_primitive: |_| Primitive::Null,
     }
 }
 
@@ -31,6 +32,7 @@ pub const fn string<'lt>(
         path,
         possible_values: || &[],
         try_from_primitive: |_| Err(SettingsError::unknown()),
+        to_primitive: |_| Primitive::Null,
     }
 }
 
@@ -42,5 +44,6 @@ pub const fn boolean(path: fn() -> &'static str, default: bool) -> Setting<'stat
         path,
         possible_values: || &[true, false],
         try_from_primitive: |_| Err(SettingsError::unknown()),
+        to_primitive: |_| Primitive::Null,
     }
 }
