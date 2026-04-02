@@ -6,24 +6,30 @@ use ::core::{
 };
 use ::std::borrow::Cow;
 
-use crate::{RefSetting, Setting, SettingsError, io::SettingsStore};
+use crate::{Setting, SettingsError, io::SettingsStore};
 
 /// A cached settings value, will use existing
 /// value on generation match otherwise retrieve new value.
 #[derive(Debug)]
-pub struct Cached<'lt, S: 'lt, T> {
+pub struct Cached<'lt, T: 'static> {
     /// Setting to use for value retrieval.
-    setting: &'lt S,
+    setting: &'lt Setting<T>,
     /// Cached setting.
     cache: RefCell<Option<T>>,
     /// Generation of setting.
     generation: u64,
 }
 
-impl<'lt, S: 'lt, T: 'static> Cached<'lt, S, T>
-where
-    S: AsRef<Setting<T>>,
-{
+impl<'lt, T: 'static> Cached<'lt, T> {
+    /// Construct a new cached setting.
+    pub const fn new(setting: &'lt Setting<T>) -> Self {
+        Self {
+            setting,
+            cache: RefCell::new(None),
+            generation: 0,
+        }
+    }
+
     /// Get settings value from store.
     ///
     /// # Errors
@@ -38,9 +44,8 @@ where
             return Ok(Guard { referenced });
         }
 
-        let setting = self.setting.as_ref();
-        let primitive = store.read_setting(setting.path())?;
-        let value = setting.try_from_primitive(primitive)?;
+        let primitive = store.read_setting(self.setting.path())?;
+        let value = self.setting.try_from_primitive(primitive)?;
         {
             let mut guard = self.cache.try_borrow_mut().map_err(|err| {
                 SettingsError::wrapped(
@@ -62,16 +67,50 @@ where
     }
 }
 
-impl<'lt, T, R> Cached<'lt, RefSetting<T, R>, T> {}
-
 /// Guard for borrowed settings value.
 #[derive(Debug)]
-pub struct Guard<'a, T> {
+pub struct Guard<'a, T: ?Sized> {
     /// Wrapped ref.
     referenced: Ref<'a, T>,
 }
 
-impl<'a, T> Deref for Guard<'a, T> {
+impl<'a, T: ?Sized> Guard<'a, T> {
+    /// Clone the guard.
+    ///
+    /// Note: Is an associated function in order
+    /// to not conflict with clone impl of guarded value.
+    #[expect(
+        clippy::should_implement_trait,
+        reason = "follows same pattern as wrapped ref"
+    )]
+    pub fn clone(orig: &Guard<'a, T>) -> Self {
+        Guard {
+            referenced: Ref::clone(&orig.referenced),
+        }
+    }
+
+    /// Get guard to type for which `T` implements [AsRef].
+    pub fn as_ref<R>(this: Guard<'a, T>) -> Guard<'a, R>
+    where
+        T: AsRef<R>,
+    {
+        Guard {
+            referenced: Ref::map(this.referenced, T::as_ref),
+        }
+    }
+
+    /// Get guard to type for which `T` implements [Deref].
+    pub fn as_deref(this: Guard<'a, T>) -> Guard<'a, T::Target>
+    where
+        T: Deref,
+    {
+        Guard {
+            referenced: Ref::map(this.referenced, T::deref),
+        }
+    }
+}
+
+impl<'a, T: ?Sized> Deref for Guard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
