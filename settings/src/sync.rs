@@ -1,21 +1,21 @@
-//! Cache settings results.
+//! Thread safe implementations of utilities.
 
-use ::core::{
-    cell::{Ref, RefCell},
-    ops::Deref,
-};
-use ::std::borrow::Cow;
+use ::core::ops::Deref;
+
+use ::parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{Setting, SettingsError, io::SettingsStore};
 
 /// A cached settings value, will use existing
 /// value on generation match otherwise retrieve new value.
+///
+/// Sync implementation of [Cached][crate::cached::Cached].
 #[derive(Debug)]
 pub struct Cached<'lt, T: 'static> {
     /// Setting to use for value retrieval.
     setting: &'lt Setting<T>,
     /// Cached setting.
-    cache: RefCell<Option<T>>,
+    cache: RwLock<Option<T>>,
     /// Generation of setting.
     generation: u64,
 }
@@ -31,7 +31,7 @@ impl<'lt, T: 'static> Cached<'lt, T> {
     pub const fn new(setting: &'lt Setting<T>) -> Self {
         Self {
             setting,
-            cache: RefCell::new(None),
+            cache: RwLock::new(None),
             generation: 0,
         }
     }
@@ -44,7 +44,10 @@ impl<'lt, T: 'static> Cached<'lt, T> {
         &'this self,
         store: &dyn SettingsStore,
     ) -> Result<Guard<'this, T>, SettingsError> {
-        if let Ok(referenced) = Ref::filter_map(self.cache.try_borrow()?, |inner| inner.as_ref())
+        let guard = self.cache.read();
+
+        if let Ok(referenced) =
+            RwLockReadGuard::try_map_or_err(guard, |inner| inner.as_ref().ok_or(()))
             && self.generation == store.generation()
         {
             return Ok(Guard { referenced });
@@ -52,22 +55,14 @@ impl<'lt, T: 'static> Cached<'lt, T> {
 
         let primitive = store.read_setting(self.setting.path())?;
         let value = self.setting.try_from_primitive(primitive)?;
-        {
-            let mut guard = self.cache.try_borrow_mut().map_err(|err| {
-                SettingsError::wrapped(
-                    Cow::Borrowed(
-                        "setting updated whilst borrowed\
-                   A\nntip: in the same context clone \
-                   the guard of a single borrow instead \
-                   of calling Cached::get multiple times",
-                    ),
-                    err,
-                )
-            })?;
-            *guard = Some(value);
-        }
-        let referenced = Ref::filter_map(self.cache.try_borrow()?, |inner| inner.as_ref())
-            .map_err(|_| "cached value was not set, should not happen")?;
+        let mut guard = self.cache.write();
+        *guard = Some(value);
+
+        let referenced =
+            RwLockReadGuard::try_map_or_err(RwLockWriteGuard::downgrade(guard), |inner| {
+                inner.as_ref().ok_or(())
+            })
+            .map_err(|_| "cached value not set, should not happen")?;
 
         Ok(Guard { referenced })
     }
@@ -77,24 +72,10 @@ impl<'lt, T: 'static> Cached<'lt, T> {
 #[derive(Debug)]
 pub struct Guard<'a, T: ?Sized> {
     /// Wrapped ref.
-    referenced: Ref<'a, T>,
+    referenced: MappedRwLockReadGuard<'a, T>,
 }
 
 impl<'a, T: ?Sized> Guard<'a, T> {
-    /// Clone the guard.
-    ///
-    /// Note: Is an associated function in order
-    /// to not conflict with clone impl of guarded value.
-    #[expect(
-        clippy::should_implement_trait,
-        reason = "follows same pattern as wrapped ref"
-    )]
-    pub fn clone(orig: &Guard<'a, T>) -> Self {
-        Guard {
-            referenced: Ref::clone(&orig.referenced),
-        }
-    }
-
     /// Map guarded value.
     pub fn map<F, U>(this: Guard<'a, T>, f: F) -> Guard<'a, U>
     where
@@ -102,7 +83,7 @@ impl<'a, T: ?Sized> Guard<'a, T> {
         U: ?Sized,
     {
         let Guard { referenced } = this;
-        let referenced = Ref::map(referenced, f);
+        let referenced = MappedRwLockReadGuard::map(referenced, f);
         Guard { referenced }
     }
 

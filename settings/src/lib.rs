@@ -10,6 +10,9 @@ pub mod error;
 pub mod factory;
 pub mod io;
 
+#[cfg(feature = "sync")]
+pub mod sync;
+
 #[cfg(feature = "cached")]
 pub mod cached;
 

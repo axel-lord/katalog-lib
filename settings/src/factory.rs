@@ -51,6 +51,6 @@ pub const fn boolean(path: fn() -> &'static str, default: bool) -> Setting<bool>
                 Err("cannot get boolean setting from null, array, or map primitives".into())
             }
         },
-        to_primitive: |_| Primitive::Null,
+        to_primitive: |value| Primitive::Bool(*value),
     }
 }
