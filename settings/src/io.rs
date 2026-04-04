@@ -1,5 +1,7 @@
 //! Reading and writing of settings.
 
+use ::core::num::NonZero;
+
 use crate::{Primitive, SettingsError};
 
 /// Trait used to perform settings read and write operations.
@@ -22,5 +24,5 @@ pub trait SettingsStore {
     ///
     /// It is perfectly valid to increase it on any write, as it's intended use is cache
     /// invalidation.
-    fn generation(&self) -> u64;
+    fn generation(&self) -> NonZero<u64>;
 }

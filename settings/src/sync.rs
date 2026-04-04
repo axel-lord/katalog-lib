@@ -71,7 +71,7 @@ impl<'lt, T: 'static> Cached<'lt, T> {
 
         if let Ok(referenced) =
             RwLockReadGuard::try_map_or_err(guard, |inner| inner.as_ref().ok_or(()))
-            && self.generation == store.generation()
+            && self.generation == store.generation().get()
         {
             return Ok(Guard::new(referenced));
         }

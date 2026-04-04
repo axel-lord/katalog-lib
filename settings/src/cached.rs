@@ -83,7 +83,7 @@ impl<'lt, T: 'static> Cached<'lt, T> {
         store: &dyn SettingsStore,
     ) -> Result<Guard<'this, T, Unsync>, SettingsError> {
         if let Ok(referenced) = Ref::filter_map(self.cache.try_borrow()?, |inner| inner.as_ref())
-            && self.generation == store.generation()
+            && self.generation == store.generation().get()
         {
             return Ok(Guard::new(referenced));
         }
