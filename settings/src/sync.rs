@@ -1,10 +1,33 @@
 //! Thread safe implementations of utilities.
 
-use ::core::ops::Deref;
+use ::parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use ::parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use crate::{Setting, SettingsError, cached::Guard, io::SettingsStore, sync::backend::Sync};
 
-use crate::{Setting, SettingsError, io::SettingsStore};
+mod backend {
+    //! Guard backend.
+
+    use ::parking_lot::MappedRwLockReadGuard;
+
+    use crate::cached::Backend;
+
+    /// Sync backend.
+    #[derive(Debug)]
+    pub enum Sync {}
+
+    impl Backend for Sync {
+        type Ref<'a, T: 'a + ?Sized> = MappedRwLockReadGuard<'a, T>;
+
+        fn map<'a, T, F, U>(this: Self::Ref<'a, T>, f: F) -> Self::Ref<'a, U>
+        where
+            F: FnOnce(&T) -> &U,
+            U: ?Sized,
+            T: ?Sized,
+        {
+            MappedRwLockReadGuard::map(this, f)
+        }
+    }
+}
 
 /// A cached settings value, will use existing
 /// value on generation match otherwise retrieve new value.
@@ -43,14 +66,14 @@ impl<'lt, T: 'static> Cached<'lt, T> {
     pub fn get<'this>(
         &'this self,
         store: &dyn SettingsStore,
-    ) -> Result<Guard<'this, T>, SettingsError> {
+    ) -> Result<Guard<'this, T, Sync>, SettingsError> {
         let guard = self.cache.read();
 
         if let Ok(referenced) =
             RwLockReadGuard::try_map_or_err(guard, |inner| inner.as_ref().ok_or(()))
             && self.generation == store.generation()
         {
-            return Ok(Guard { referenced });
+            return Ok(Guard::new(referenced));
         }
 
         let primitive = store.read_setting(self.setting.path())?;
@@ -64,50 +87,6 @@ impl<'lt, T: 'static> Cached<'lt, T> {
             })
             .map_err(|_| "cached value not set, should not happen")?;
 
-        Ok(Guard { referenced })
-    }
-}
-
-/// Guard for borrowed settings value.
-#[derive(Debug)]
-pub struct Guard<'a, T: ?Sized> {
-    /// Wrapped ref.
-    referenced: MappedRwLockReadGuard<'a, T>,
-}
-
-impl<'a, T: ?Sized> Guard<'a, T> {
-    /// Map guarded value.
-    pub fn map<F, U>(this: Guard<'a, T>, f: F) -> Guard<'a, U>
-    where
-        F: FnOnce(&T) -> &U,
-        U: ?Sized,
-    {
-        let Guard { referenced } = this;
-        let referenced = MappedRwLockReadGuard::map(referenced, f);
-        Guard { referenced }
-    }
-
-    /// Get guard to type for which `T` implements [AsRef].
-    pub fn as_ref<R>(this: Guard<'a, T>) -> Guard<'a, R>
-    where
-        T: AsRef<R>,
-    {
-        Guard::map(this, T::as_ref)
-    }
-
-    /// Get guard to type for which `T` implements [Deref].
-    pub fn as_deref(this: Guard<'a, T>) -> Guard<'a, T::Target>
-    where
-        T: Deref,
-    {
-        Guard::map(this, T::deref)
-    }
-}
-
-impl<'a, T: ?Sized> Deref for Guard<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.referenced
+        Ok(Guard::new(referenced))
     }
 }
