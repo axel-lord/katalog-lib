@@ -2,7 +2,10 @@
 
 use ::parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use crate::{Setting, SettingsError, cached::Guard, io::SettingsStore, sync::backend::Sync};
+use crate::{Setting, SettingsError, io::SettingsStore, sync::backend::Sync};
+
+/// Guard for borrowed settings value.
+pub type Guard<'a, T, B = Sync> = crate::cached::Guard<'a, T, B>;
 
 mod backend {
     //! Guard backend.

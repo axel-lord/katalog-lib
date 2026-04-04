@@ -113,7 +113,7 @@ impl<'lt, T: 'static> Cached<'lt, T> {
 
 /// Guard for borrowed settings value.
 #[derive(Debug)]
-pub struct Guard<'a, T: 'a + ?Sized, B: Backend> {
+pub struct Guard<'a, T: 'a + ?Sized, B: Backend = Unsync> {
     /// Wrapped ref.
     referenced: B::Ref<'a, T>,
 }
