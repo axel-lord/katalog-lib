@@ -1,4 +1,4 @@
-crate := "katalog-lib"
+rate := "katalog-lib"
 
 # Generate documentation for default feature set.
 docs *EXTRA:
