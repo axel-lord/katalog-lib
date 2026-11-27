@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = ["ipc",
 	"katalog-lib",
 ]
 resolver = "2"
